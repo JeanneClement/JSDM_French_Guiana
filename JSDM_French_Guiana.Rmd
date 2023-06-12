@@ -69,6 +69,16 @@ library(dplyr)
 # Guyafor
 f <- "~/Documents/projet_METRADICA/data/Inventaires/202110_DonneesModeleMetradicaTout+Diam.csv"
 df <- readr::read_delim(f, delim=",")
+df$Lat <- NA
+df$Lon <- NA 
+## Coordinates for Habitat project subplots (considered as plots)
+habitat_plots <- readr::read_delim("~/Documents/projet_METRADICA/data/Inventaires/habitat_plots.csv", delim=",")
+colnames(habitat_plots) <- c("Project", "idPlot", "idSubPlot",
+                             "UTMZone", "SourceCoord", "Topo",
+                             "Forest", "Plot", "SubPlot", "Lon", "Lat")
+habitat_plots$Project <- "Habitat"
+df <- dplyr::left_join(df, habitat_plots)
+
 # GuyaDiv
 ## Inventory
 f2 <- "~/Documents/projet_METRADICA/data/Inventaires/20211203_GuyaDiv.csv"
@@ -82,7 +92,8 @@ coord_f2 <- "~/Documents/projet_METRADICA/data/Inventaires/20230310_GuyaDivCoord
 coord_df2 <- readr::read_delim(coord_f2, delim=";")
 coord_df2 <- dplyr::select(coord_df2, c("Forest", "Plot", "XutmSO", "YutmSO", "LatSO", "LonSO", "UTMZone"))
 names(coord_df2) <- c("Forest", "Plot", "Xutm", "Yutm", "Lat", "Lon", "UTMZone")
-df2 <- dplyr::left_join(df2, coord_df2, by=c("Plot", "Forest"))
+df2 <- dplyr::left_join(df2, coord_df2, relationship = "many-to-many",
+                        by=c("Plot", "Forest"))
 
 # Delete species whose identification is uncertain
 ## BotaCertainty=2 :Undetermined botanical species (after attempt of identification by the botanist)
@@ -140,10 +151,13 @@ df2 <- df2[df2$Plot %in% df3$Parcelle,]
 trees <- rbind(df[, colnames(df)  %in% colnames(df2)], df2[, colnames(df2)  %in% colnames(df)])
 trees[, c("Lat", "Lon", "PlotArea", "Topo", "SourceCoord")] <- NA
 trees[trees$Project=="GuyaDiv", c("Lat", "Lon", "PlotArea")] <- df2[, c("Lat", "Lon", "PlotArea")]
+trees[trees$Project=="GuyaDiv", c("SourceCoord")] <- "plot"
 trees[!(trees$Project=="GuyaDiv"), c("Topo", "SourceCoord")] <- df[, c("Topo", "SourceCoord")]
-# New column forest_plot (same IdPlot for different forest between projects)
+# New column idPlot <- forest_plot (same IdPlot for different forest between projects)
 trees$Forest <- gsub( " ", "_", trees$Forest)
 trees$idPlot <- paste0(trees$Forest, "_", trees$Plot)
+# Add Habitat project's subplot coordinates
+
 
 # Check coordinates plots Nouragues and Montagne tortue  (different plot or just different id ? between Guyadiv and Guyafor)
 # CriquePlomb/CriquePlombGuyaDiv OK, Regina/Regina_St_Georges OK 
@@ -332,18 +346,34 @@ title("Current bioclimatic variables", outer=TRUE, cex=0.8)
 
 # spatial points of each plot
 coords <- unique(dplyr::select(trees, c(Xutm, Yutm,
-                       idPlot, SourceCoord, UTMZone, Project)))
-colnames(coords) <- c("Xutm","Yutm","plot", "sourceCoord", "UTMZone", "Project")
-coords_Guyafor <- coords[coords$Project=="Guyafor",]
-coords_Guyafor_plot <- coords_Guyafor[coords_Guyafor$sourceCoord=="plot",]
-coords_Guyafor_tree <- coords_Guyafor[coords_Guyafor$sourceCoord=="tree",]
-coords_Guyafor_tree <- coords_Guyafor_tree[!(coords_Guyafor_tree$plot %in% coords_Guyafor_plot$plot), ]
-sites <- unique(coords_Guyafor_tree[,"plot"])
-coords_Guyafor <- coords_Guyafor_plot 
-for(i in 1:length(sites)){
-  mat <- coords_Guyafor_tree[coords_Guyafor_tree$plot==sites[i], ]
-  coords_Guyafor <- rbind(coords_Guyafor, mat[which.min(mat$Xutm),])
+                                        idPlot, SourceCoord, UTMZone, Project)))
+# Project Lat Lon coordinates to UTM22N coordinates (EPSG:32622)
+# terra::project(terra::vect(matrix(c(-54.4, 2.21), ncol=2), type="point", crs="epsg:4326"), "epsg:32621")
+# UTM 21N EPSG:32621
+
+# Vector of coordinates for each inventory site
+plots <- unique(coords$idPlot)
+nplot <- length(plots)
+xy <- matrix(NA, nrow=nplot, ncol=3)
+colnames(xy) <- c("x", "y", "EPSG")
+rownames(xy) <- plots 
+coords_plot <- coords[coords$SourceCoord=="plot",]
+
+for(i in 1:nplot){
+  
+  if(!("plot" %in% coords$SourceCoord[coords$idPlot == plots[i]])){
+    xy[i, c("x","y")] <- apply(as.matrix(coords[coords$idPlot == plots[i] ,
+                                                c("Xutm", "Yutm")]), 2, min, na.rm=TRUE)
+  }
+  
+  else{
+    xy[i, c("x","y")] <- unique(as.matrix(coords_plot[coords_plot$idPlot == plots[i], c("Xutm", "Yutm")]))
+    
+  }  
+  xy[i,"EPSG"] <- paste0("326", unique(as.matrix( 
+    coords$UTMZone[coords$idPlot == plots[i]])))
 }
+
 coords$plot <- as.numeric(coords$plot)
 coords$Xutm <- as.numeric(coords$Xutm)
 coords$Yutm <- as.numeric(coords$Yutm)
@@ -528,7 +558,45 @@ terra::plot(percent_GM_1km)
 knitr::include_graphics("JSDM_French_Guiana_files/figure-html/geomorpho-1km-1.png")
 ```
 
+### Available Plant water deficit (APAWD)
+
+```{r APAWD-1km}
+APAWD <- terra::rast("/home/clement/Documents/projet_METRADICA/data/apawd12m2.tif")
+terra::plot(APAWD, main="APAWD")
+```
+
+```{r plot-APAWD, echo=FALSE, out.width=800, eval=TRUE}
+knitr::include_graphics("JSDM_French_Guiana_files/figure-html/APAWD-1km-1.png")
+```
+
 # Assessing correlations between explanatory variables  
+```{r var-corr}
+# Climatic variables
+clim_path <- "~/Documents/projet_METRADICA/data/data_raw/current_chelsa.tif"
+load("~/Documents/projet_METRADICA/data/output.RData")
+# get interesting covariates among the climatic variables downloaded  
+clim_var <- terra::rast(clim_path,
+                        lyrs=c("bio1", "bio4", "bio12", "bio15", "cwd_penman"))
+names(clim_var) <- c("temp", "sais_temp", "prec", "sais_prec", "cwd")
+proj <- terra::crs(clim_var)
+
+# Data restricted to French Guiana's borders
+borders <- terra::vect(output[[2]], layer="gadm36_GUF_0")
+borders <- terra::project(borders, proj)
+clim_var <- terra::mask(clim_var, borders)
+# APAWD
+APAWD <- terra::rast("/home/clement/Documents/projet_METRADICA/data/apawd12m2.tif")
+names(APAWD) <- "APAWD"
+APAWD <- terra::project(APAWD, clim_var)
+# pairwise correlation
+terra::pairs(c(APAWD, clim_var), cor=TRUE,  use="pairwise.complete.obs", maxcells=200000, hist=TRUE)
+```
+
+```{r plot-var-corr, echo=FALSE, out.width=1000, eval=TRUE}
+knitr::include_graphics("JSDM_French_Guiana_files/figure-html/var-corr-1.png")
+```
+
+# Design matrix 
 
 # Fitting joint species distribution model (JSDM) 
 
