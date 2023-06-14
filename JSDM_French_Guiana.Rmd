@@ -53,195 +53,12 @@ library(terra)
 library(sf)
 library(jSDM)
 library(gecevar)
-
+library(readr)
+library(dplyr)
 ```
 
 # Datasets
 
-## Resonse variable: Forest inventory 
-
-Forest inventories carried out in French Guiana, in the context of Guyafor, Guyadiv, Habitat,  Diadema, AmaLin and Paracou project are available.
-We use these forest inventories to calculate a matrix indicating the presence by a $1$ and the absence by a $0$ of the species at each site by removing observations for which the species is not identified and rare species with less than 5 observations on all sites. This matrix therefore records the occurrences of $290$ species at $36$ sites.
-
-```{r forest-inventory, eval=FALSE}
-library(readr)
-library(dplyr)
-# Guyafor
-f <- "~/Documents/projet_METRADICA/data/Inventaires/202110_DonneesModeleMetradicaTout+Diam.csv"
-df <- readr::read_delim(f, delim=",")
-df$Lat <- NA
-df$Lon <- NA 
-## Coordinates for Habitat project subplots (considered as plots)
-habitat_plots <- readr::read_delim("~/Documents/projet_METRADICA/data/Inventaires/habitat_plots.csv", delim=",")
-colnames(habitat_plots) <- c("Project", "idPlot", "idSubPlot",
-                             "UTMZone", "SourceCoord", "Topo",
-                             "Forest", "Plot", "SubPlot", "Lon", "Lat")
-habitat_plots$Project <- "Habitat"
-df <- dplyr::left_join(df, habitat_plots)
-
-# GuyaDiv
-## Inventory
-f2 <- "~/Documents/projet_METRADICA/data/Inventaires/20211203_GuyaDiv.csv"
-df2 <- readr::read_delim(f2, delim=",")
-# Remove empty columns 
-df2  <- select(df2, -c("Xutm", "Yutm", "Lat", "Lon"))
-df2$Taxon <- paste0(df2$Genus,"_",df2$Species)
-df2$Project <- "GuyaDiv"
-## Add coordinates 
-coord_f2 <- "~/Documents/projet_METRADICA/data/Inventaires/20230310_GuyaDivCoord.csv"
-coord_df2 <- readr::read_delim(coord_f2, delim=";")
-coord_df2 <- dplyr::select(coord_df2, c("Forest", "Plot", "XutmSO", "YutmSO", "LatSO", "LonSO", "UTMZone"))
-names(coord_df2) <- c("Forest", "Plot", "Xutm", "Yutm", "Lat", "Lon", "UTMZone")
-df2 <- dplyr::left_join(df2, coord_df2, relationship = "many-to-many",
-                        by=c("Plot", "Forest"))
-
-# Delete species whose identification is uncertain
-## BotaCertainty=2 :Undetermined botanical species (after attempt of identification by the botanist)
-## BotaCertainty=3 : Temporary identification (the botanist is waiting for a confirmation 
-## of the name by a specialist or a confrontation with herbarium samples)
-## BotaCertainty=4 : Confirmed identification 
-df2 <- df2[df2$BotaCertainty>2, ]
-# Remove species with indeterminate genus 
-df <- df[-grep("Indet", df$Taxon), ]
-df2 <- df2[-grep("Indet", df2$Taxon), ]
-
-# Regroup by species taxa not defined at species but subspecies level
-# subsp. 
-length(unique(df$Taxon))
-length(unique(df2$Taxon))
-df$Taxon <- sub("( subsp. )+[a-z]+", "", df$Taxon)
-df2$Taxon <- sub("(_subsp.)+[a-z]+", "", df2$Taxon)
-# var.
-df$Taxon <- sub("( var. )+[a-z]+", "", df$Taxon)
-df2$Taxon <- sub("(_var.)+[a-z]+", "", df2$Taxon)
-
-# Type of inventory (Plein/Points)
-f3 <- "~/Documents/projet_METRADICA/data/Inventaires/ParcellesGUYADIV_2021.csv"
-df3 <- readr::read_delim(f3, delim=",")
-# Correction of parcelle's names to match plot names in df2 
-df3$Parcelle[!(df3$Parcelle %in% df2$Plot)]
-unique(df2$Plot[!(df2$Plot  %in% df3$Parcelle)])
-# Nouragues (Grand_Plateau)
-df3$Parcelle[grep("NOU[1-9][1-9]L", df3$Parcelle,)] <-  unique(df2[(df2$Forest=="Nouragues") & !(df2$Plot  %in% df3$Parcelle), "Plot"])$Plot
-  
-# Paracou ("1"  "10" "11" "16" "2"  "3"  "4"  "5"  "6"  "7"  "9")
-df3$Parcelle[grep("PAR", df3$Parcelle,)] <- unique(df2[(df2$Forest=="Paracou") & (df2$SubPlot=="1"), "Plot"])$Plot
-
-# Paracou ("18(Guyaflux))
-df3$Parcelle[grep("GF", df3$Parcelle,)] <- unique(df2[(df2$Forest=="Paracou") &(df2$SubPlot!="1"), "Plot"])$Plot
-
-# Site expérimental ONF de Montagne Tortue ("P17_temoin")
-df3$Parcelle[grep("TORT2", df3$Parcelle,)] <- unique(df2[(df2$Forest=="Montagne_Tortue") & !(df2$Plot  %in% df3$Parcelle), "Plot"])$Plot
-
-# Check
-df3$Parcelle[!(df3$Parcelle %in% df2$Plot)]
-unique(df2$Plot[!(df2$Plot  %in% df3$Parcelle)])
-nsp1 <- length(unique(df$Taxon))
-nsp2 <- length(unique(df2$Taxon))
-nsp_tot <- length(unique(c(df$Taxon,df2$Taxon)))
-nsp_com <- sum((unique(df2$Taxon) %in% unique(df$Taxon)))
-
-
-# Keep only exhaustive inventories
-df3 <- df3[df3$Type=="Plein", ]
-# Delete non-exhaustive inventories in df2 
-df2 <- df2[df2$Plot %in% df3$Parcelle,]
-
-# forest inventory
-trees <- rbind(df[, colnames(df)  %in% colnames(df2)], df2[, colnames(df2)  %in% colnames(df)])
-trees[, c("Lat", "Lon", "PlotArea", "Topo", "SourceCoord")] <- NA
-trees[trees$Project=="GuyaDiv", c("Lat", "Lon", "PlotArea")] <- df2[, c("Lat", "Lon", "PlotArea")]
-trees[trees$Project=="GuyaDiv", c("SourceCoord")] <- "plot"
-trees[!(trees$Project=="GuyaDiv"), c("Topo", "SourceCoord")] <- df[, c("Topo", "SourceCoord")]
-# New column idPlot <- forest_plot (same IdPlot for different forest between projects)
-trees$Forest <- gsub( " ", "_", trees$Forest)
-trees$idPlot <- paste0(trees$Forest, "_", trees$Plot)
-# Add Habitat project's subplot coordinates
-
-
-# Check coordinates plots Nouragues and Montagne tortue  (different plot or just different id ? between Guyadiv and Guyafor)
-# CriquePlomb/CriquePlombGuyaDiv OK, Regina/Regina_St_Georges OK 
-# Piton Armontabo OK
-plot(unique(trees[trees$Forest=="Piton_Armontabo", c(4,5)]), pch=19)
-points(unique(trees[trees$Forest=="PitonArmontabo", c(4,5)]), pch=19, col='red')
-
-# Petite_Montagne_Tortue OK but 7 plots with same coordinates PMT1-PMT7 (GuyaDiv)
-unique(trees[trees$Forest=="Petite_Montagne_Tortue", -c(2,3,9,12,13,14)])
-plot(unique(trees[trees$Forest=="Petite_Montagne_Tortue" & trees$Project=="AmaLin", c(4,5)]), pch=19)
-points(unique(trees[trees$Forest=="Petite_Montagne_Tortue"  & trees$Project=="GuyaDiv", c(4,5)]), pch=19, col='red')
-
-# Nouragues
-unique(trees[trees$Forest=="Nouragues", -c(2,3,9,12,13,14)])
-plot(unique(trees[trees$Forest=="Nouragues" & trees$Project=="Guyafor", c(4,5)]), pch=".", 
-     xlim=c(min(unique(trees[trees$Forest=="Nouragues", 4])),
-            max(unique(trees[trees$Forest=="Les_Nouragues", 4]), na.rm=TRUE)),
-          ylim=c(min(unique(trees[trees$Forest=="Nouragues", 5])),
-            max(unique(trees[trees$Forest=="Nouragues", 5]))))
-points(unique(trees[trees$Forest=="Nouragues" & trees$Project=="GuyaDiv", c(4,5)]), pch=19, col='red')
-points(unique(trees[trees$Forest=="Nouragues" & trees$Project=="AmaLin", c(4,5)]), pch=19, col='blue')
-points(unique(trees[trees$Forest=="Les_Nouragues", c(4,5)]), pch=19, col='green')
-# CSG
-plot(unique(trees[trees$Forest=="CSG", c(4,5)]), pch=19, 
-     xlim=c(min(unique(trees[trees$Forest=="CSG", 4])),
-            max(unique(trees[trees$Forest=="Centre_Spatial", 4]), na.rm=TRUE)),
-          ylim=c(min(unique(trees[trees$Forest=="Centre_Spatial", 5])),
-            max(unique(trees[trees$Forest=="Centre_Spatial", 5]))))
-points(unique(trees[trees$Forest=="Centre_Spatial", c(4,5)]), pch=19, col='red')
-# Trinite
-plot(unique(trees[trees$Forest=="Trinite", c(4,5)]), pch='*')
-points(unique(trees[trees$Forest=="TriniteGentry", c(4,5)]), pch=19, col='red')
-# Limonade
-plot(unique(trees[trees$Forest=="Limonade", c(4,5)]), pch='*')
-points(unique(trees[trees$Forest=="Saul_Diadema_(Limonade)", c(4,5)]), pch=19, col='red')
-# Paracou
- plot(unique(trees[trees$Forest=="Paracou", c(4,5)]), pch='.')
- points(unique(trees[trees$Forest=="Crique_Paracou", c(4,5)]), pch='*', col='red')
-
-# Use date (df$FirstYear/ df$LastYear and df2$CensusYear)
-# Compute growth (Guiadiv df2$Circ, Guyafor df$FirstDiam, df$LastDiam)
-
-# presence/absence of each species on each plot
-nplot <- length(unique(trees$idPlot))
-n_common_plot <- sum(unique(trees$idPlot[trees$Project=="GuyaDiv"]) %in% unique(trees$idPlot[!(trees$Project=="GuyaDiv")]))
-species <- unique(trees$Taxon)
-nsp <- length(species)
-n_common_sp <- sum(unique(df2$Taxon) %in% unique(df$Taxon))
-# presence/absence of each species on each plot
-PA <- matrix(0, nplot, nsp)
-rownames(PA) <- unique(trees$idPlot)
-colnames(PA) <- unique(trees$Taxon)
-for (i in 1:nplot){    
-  for (j in 1:nsp){
-    idx <- which(trees$Taxon == species[j])
-    PA[unique(trees$idPlot[idx]),j] <- 1 
-  }
-}
-# Remove very rare species 
-rare_species <- which(colSums(PA)<=2)
-trees <- trees[!(trees$Taxon %in% names(rare_species)),]
-PA <- PA[ ,which(colSums(PA)>2)]
-nsp <- ncol(PA)
-nplot <- nrow(PA)
-species <- colnames(PA)
-write.csv(PA, file ="~/Documents/projet_METRADICA/data/Inventaires/PA.csv")
-```
-
-
-```{r PA-table, include=FALSE, eval=FALSE}
-PA_anon <- PA
-rownames(PA_anon) <- paste0("site_", 1:nplot)
-colnames(PA_anon) <- paste0("sp_", 1:nsp)
-write.csv(PA_anon, file ="~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_files/PA.csv")
-knitr::kable(head(PA_anon[,1:20]), digits=1, booktabs=TRUE, align = 'c') %>%
-  kableExtra::kable_styling(latex_options=c("HOLD_position","striped"), full_width=FALSE) %>% 
-  kableExtra::save_kable(file="~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_files/PA_FG.png")
-```
-
-\cr 
-\cr
-```{r FG-PA, echo=FALSE, out.width=900, eval=FALSE}
-knitr::include_graphics("JSDM_French_Guiana_files/PA_FG.png")
-```
 
 ## Explanatory variables 
 
@@ -326,7 +143,7 @@ We choose to use the following variables because they have an ecological meaning
 
 We consider also the quadratic effects of these climate variables to perform a quadratic regression, which is more suitable for fitting a niche model than a linear regression. 
 
-```{r current-environmental-variables, eval=FALSE}
+```{r current-environmental-variables,}
 clim_path <- "~/Documents/projet_METRADICA/data/data_raw/current_chelsa.tif"
 load("~/Documents/projet_METRADICA/data/output.RData")
 # get interesting covariates among the climatic variables downloaded  
@@ -343,105 +160,11 @@ clim_var <- terra::mask(clim_var, borders)
 par(oma=c(0,0,2,1))
 terra::plot(clim_var, legend=TRUE)
 title("Current bioclimatic variables", outer=TRUE, cex=0.8)
-
-# spatial points of each plot
-coords <- unique(dplyr::select(trees, c(Xutm, Yutm,
-                                        idPlot, SourceCoord, UTMZone, Project)))
-# Project Lat Lon coordinates to UTM22N coordinates (EPSG:32622)
-# terra::project(terra::vect(matrix(c(-54.4, 2.21), ncol=2), type="point", crs="epsg:4326"), "epsg:32621")
-# UTM 21N EPSG:32621
-
-# Vector of coordinates for each inventory site
-plots <- unique(coords$idPlot)
-nplot <- length(plots)
-xy <- matrix(NA, nrow=nplot, ncol=3)
-colnames(xy) <- c("x", "y", "EPSG")
-rownames(xy) <- plots 
-coords_plot <- coords[coords$SourceCoord=="plot",]
-
-for(i in 1:nplot){
-  
-  if(!("plot" %in% coords$SourceCoord[coords$idPlot == plots[i]])){
-    xy[i, c("x","y")] <- apply(as.matrix(coords[coords$idPlot == plots[i] ,
-                                                c("Xutm", "Yutm")]), 2, min, na.rm=TRUE)
-  }
-  
-  else{
-    xy[i, c("x","y")] <- unique(as.matrix(coords_plot[coords_plot$idPlot == plots[i], c("Xutm", "Yutm")]))
-    
-  }  
-  xy[i,"EPSG"] <- paste0("326", unique(as.matrix( 
-    coords$UTMZone[coords$idPlot == plots[i]])))
-}
-
-coords$plot <- as.numeric(coords$plot)
-coords$Xutm <- as.numeric(coords$Xutm)
-coords$Yutm <- as.numeric(coords$Yutm)
-coords <- coords[sort(coords[,3], index.return=TRUE)$ix,]
-# UTM22N coordinates system
-xy <- terra::vect(coords[,1:2], crs=proj, geom=c("Xutm", "Yutm"))
-# terra::writeVector(xy, overwrite=TRUE, "~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/xy.shp")
-
-# Add squared data
-clim_var2 <- c(clim_var, clim_var^2)
-names(clim_var2) <- c(names(clim_var), paste0(names(clim_var),
-                                              rep("2", dim(clim_var)[3])))
-
-
-# extract climatic data on each plot
-clim2 <-  terra::extract(clim_var2, xy)
-pos <- coords[,1:3]
-colnames(pos) <- c("Xutm","Yutm","plot")
-
-# Add squared data
-data_clim2 <- data.frame(cbind(clim2[,-1], pos))
-nparam <- ncol(data_clim2) -3
-library(tidyverse)
-
-# reduced centered data
-scaled_data_clim2 <- scale(data_clim2[,1:nparam])
-means <- attr(scaled_data_clim2,"scaled:center")
-sds <- attr(scaled_data_clim2,"scaled:scale")
-scaled_data_clim2 <- as_tibble(cbind(plot=data_clim2$plot,
-                                     scaled_data_clim2,
-                                     Xutm=data_clim2$Xutm, 
-                                     Yutm=data_clim2$Yutm))
-write.csv(scaled_data_clim2, file ="~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_files/scaled_clim.csv")
-
-## Design matrix
-X <- data.frame(intercept=rep(1,nplot),
-                dplyr::select(scaled_data_clim2,-Xutm,-Yutm, -plot))
-np <- ncol(X)
-
-# save raster in .tif format
-# Center and reduce climatic variables 
-# using means and standard deviations of climatic variables at inventory sites
-scaled_clim_var <- (clim_var2-means)/sds
-names(scaled_clim_var) <- names(clim_var2)
-terra::writeRaster(scaled_clim_var,
-                   "~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/scaled_clim.tif",
-                   gdal=c("COMPRESS=LZW", "PREDICTOR=2"), overwrite=TRUE)
 ```
 
-```{r current-environmental-variables2, echo=FALSE, out.width=800, eval=FALSE}
+
+```{r current-environmental-variables2, echo=FALSE, out.width=800, eval=TRUE}
 knitr::include_graphics("JSDM_French_Guiana_files/figure-html/current-environmental-variables-1.png")
-```
-
-The values of these climate variables corresponding to the coordinates of the inventory plots are extracted and scaled to obtain the following data-set where coordinates of the sites will then be used for spatial interpolation and to spatially represent the results.
-
-```{r current-environmental-data, echo=FALSE, out.width=800, eval=TRUE}
-scaled_data_clim2 <- read.csv("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_files/scaled_clim.csv")
-kable(head(scaled_data_clim2), digits=3) %>%
-  kable_styling(bootstrap_options = "striped", 
-                latex_options= c("HOLD_position","striped"),
-                full_width = FALSE) %>% 
-  kableExtra::save_kable(file="~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_files/X_FG.png")
-```
-
-\cr 
-\cr
-```{r FG-X, echo=FALSE, out.width=900, eval=TRUE}
-knitr::include_graphics("JSDM_French_Guiana_files/X_FG.png")
 ```
 
 ### Water stress index 
@@ -569,7 +292,248 @@ terra::plot(APAWD, main="APAWD")
 knitr::include_graphics("JSDM_French_Guiana_files/figure-html/APAWD-1km-1.png")
 ```
 
+
+## Resonse variable: Forest inventory 
+
+Forest inventories carried out in French Guiana, in the context of Guyafor, Guyadiv, Habitat,  Diadema, AmaLin and Paracou project are available.
+We use these forest inventories to calculate a matrix indicating the presence by a $1$ and the absence by a $0$ of the species at each site by removing observations for which the species is not identified and rare species with less than 5 observations on all sites. This matrix therefore records the occurrences of $290$ species at $36$ sites.
+
+### Gather and clean data-sets
+
+```{r forest-inventory, eval=FALSE}
+library(readr)
+library(dplyr)
+# Guyafor
+f <- "~/Documents/projet_METRADICA/data/Inventaires/202110_DonneesModeleMetradicaTout+Diam.csv"
+df <- readr::read_delim(f, delim=",")
+df$Lat <- NA
+df$Lon <- NA 
+df$Topo <- NA
+## Coordinates for Habitat project subplots (considered as plots)
+habitat_plots <- readr::read_delim("~/Documents/projet_METRADICA/data/Inventaires/habitat_plots.csv", delim=",")
+colnames(habitat_plots) <- c("Project", "idPlot", "idSubPlot",
+                             "UTMZone", "SourceCoord", "Topo",
+                             "Forest", "Plot", "SubPlot", "Lon", "Lat")
+habitat_plots$Project <- "Habitat"
+# Missing coordinates for some plots of Habitat Project 
+unique(df[is.na(df$Xutm)  & is.na(df$Lat), c("Plot", "Project")])  
+# Missing in habitat_plots file too except one plot
+unique(df$Plot[is.na(df$Xutm)  & is.na(df$Lat)])%in% habitat_plots$Plot
+sum(!(habitat_plots$Plot %in% unique(df$Plot)))
+plot_with_coord  <- unique(df$Plot[is.na(df$Xutm)])[unique(df$Plot[is.na(df$Xutm)]) %in% habitat_plots$Plot] 
+habitat_plots <- habitat_plots[habitat_plots$Plot==plot_with_coord,]
+subplot <- habitat_plots$idSubPlot
+for(i in 1:length(subplot)){
+df[df$idSubPlot==subplot[[i]], c("Lat","Lon","Topo")] <- habitat_plots[habitat_plots$idSubPlot==subplot[[i]],                                                                          c("Lat","Lon","Topo")]
+}
+
+# Remove plots without coordinates 
+df <- df[!(is.na(df$Xutm)) | !(is.na(df$Lat)),]
+
+# GuyaDiv
+## Inventory
+f2 <- "~/Documents/projet_METRADICA/data/Inventaires/20211203_GuyaDiv.csv"
+df2 <- readr::read_delim(f2, delim=",")
+df2$Taxon <- paste0(df2$Genus,"_",df2$Species)
+# Delete species whose identification is uncertain
+## BotaCertainty=2 :Undetermined botanical species (after attempt of identification by the botanist)
+## BotaCertainty=3 : Temporary identification (the botanist is waiting for a confirmation 
+## of the name by a specialist or a confrontation with herbarium samples)
+## BotaCertainty=4 : Confirmed identification 
+df2 <- df2[df2$BotaCertainty>2, ]
+# Remove species with indeterminate genus 
+df <- df[-grep("Indet", df$Taxon), ]
+df2 <- df2[-grep("Indet", df2$Taxon), ]
+
+# Regroup by species taxa not defined at species but subspecies level
+# subsp. 
+length(unique(df$Taxon))
+length(unique(df2$Taxon))
+df$Taxon <- sub("( subsp. )+[a-z]+", "", df$Taxon)
+df2$Taxon <- sub("(_subsp.)+[a-z]+", "", df2$Taxon)
+# var.
+df$Taxon <- sub("( var. )+[a-z]+", "", df$Taxon)
+df2$Taxon <- sub("(_var.)+[a-z]+", "", df2$Taxon)
+
+# Type of inventory (Plein/Points)
+f3 <- "~/Documents/projet_METRADICA/data/Inventaires/ParcellesGUYADIV_2021.csv"
+df3 <- readr::read_delim(f3, delim=",")
+# Correction of parcelle's names to match plot names in df2 
+df3$Parcelle[!(df3$Parcelle %in% df2$Plot)]
+unique(df2$Plot[!(df2$Plot  %in% df3$Parcelle)])
+# Nouragues (Grand_Plateau)
+df3$Parcelle[grep("NOU[1-9][1-9]L", df3$Parcelle,)] <-  unique(df2[(df2$Forest=="Nouragues") & !(df2$Plot  %in% df3$Parcelle), "Plot"])$Plot
+  
+# Paracou ("1"  "10" "11" "16" "2"  "3"  "4"  "5"  "6"  "7"  "9")
+df3$Parcelle[grep("PAR", df3$Parcelle,)] <- unique(df2[(df2$Forest=="Paracou") & (df2$SubPlot=="1"), "Plot"])$Plot
+
+# Paracou ("18(Guyaflux))
+df3$Parcelle[grep("GF", df3$Parcelle,)] <- unique(df2[(df2$Forest=="Paracou") &(df2$SubPlot!="1"), "Plot"])$Plot
+
+# Site expérimental ONF de Montagne Tortue ("P17_temoin")
+df3$Parcelle[grep("TORT2", df3$Parcelle,)] <- unique(df2[(df2$Forest=="Montagne_Tortue") & !(df2$Plot  %in% df3$Parcelle), "Plot"])$Plot
+
+# Check
+df3$Parcelle[!(df3$Parcelle %in% df2$Plot)]
+unique(df2$Plot[!(df2$Plot  %in% df3$Parcelle)])
+nsp1 <- length(unique(df$Taxon))
+nsp2 <- length(unique(df2$Taxon))
+nsp_tot <- length(unique(c(df$Taxon,df2$Taxon)))
+nsp_com <- sum((unique(df2$Taxon) %in% unique(df$Taxon)))
+
+
+# Keep only exhaustive inventories
+df3 <- df3[df3$Type=="Plein", ]
+# Delete non-exhaustive inventories in df2 
+df2 <- df2[df2$Plot %in% df3$Parcelle,]
+df2$Project <- "GuyaDiv"
+df2$UTMZone <- NA
+df2 <- dplyr::select(df2, c('Forest','Plot','PlotArea','SubPlot','idTree','Xutm','Yutm','Lat','Lon','Taxon','Project','UTMZone'))
+## Add coordinates 
+coord_f2 <- "~/Documents/projet_METRADICA/data/Inventaires/20230310_GuyaDivCoord.csv"
+coord_df2 <- readr::read_delim(coord_f2, delim=";")
+coord_df2 <- unique(dplyr::select(coord_df2, c("Forest", "Plot", "XutmSO", "YutmSO", "LatSO", "LonSO", "UTMZone")))
+names(coord_df2) <- c("Forest", "Plot", "Xutm", "Yutm", "Lat", "Lon", "UTMZone")
+plot <- unique(df2$Plot)
+for(i in 1:length(plot)){
+df2[df2$Plot==plot[[i]], c( "Xutm", "Yutm", "Lat", "Lon", "UTMZone")] <- coord_df2[coord_df2$Plot==plot[[i]],                                                                           c("Xutm", "Yutm", "Lat", "Lon", "UTMZone")]
+}
+
+# forest inventory
+trees <- rbind(df[, colnames(df)  %in% colnames(df2)], df2[, colnames(df2)  %in% colnames(df)])
+trees[, c("PlotArea", "SourceCoord", "idPlot")] <- NA
+trees[trees$Project=="GuyaDiv", "PlotArea"] <- df2[, "PlotArea"]
+trees[trees$Project=="GuyaDiv", "SourceCoord"] <- "plot"
+trees[!(trees$Project=="GuyaDiv"), c( "SourceCoord")] <- df[, c( "SourceCoord")]
+# New column idPlot <- forest_plot (same IdPlot for different forest between projects)
+trees$Forest <- gsub( " ", "_", trees$Forest)
+trees$idPlot <- paste0(trees$Forest, "_" ,                           trees$Plot)
+# # Add Habitat project's subplot coordinates
+# trees$idPlot[!(trees$Project=="Habitat")] <- paste0(trees$Forest[!(trees$Project=="Habitat")], "_",                                         trees$Plot[!(trees$Project=="Habitat")])
+# trees$idPlot[trees$Project=="Habitat"] <- paste0(trees$Forest[trees$Project=="Habitat"], "_",                                         trees$SubPlot[trees$Project=="Habitat"])
+
+write.csv(unique(trees), file ="~/Documents/projet_METRADICA/data/Inventaires/trees.csv", row.names = FALSE)
+
+# # Check coordinates plots Nouragues and Montagne tortue  (different plot or just different id ? between Guyadiv and Guyafor)
+# # CriquePlomb/CriquePlombGuyaDiv OK, Regina/Regina_St_Georges OK 
+# # Piton Armontabo OK
+# plot(unique(trees[trees$Forest=="Piton_Armontabo", c(4,5)]), pch=19)
+# points(unique(trees[trees$Forest=="PitonArmontabo", c(4,5)]), pch=19, col='red')
+# 
+# # Petite_Montagne_Tortue OK but 7 plots with same coordinates PMT1-PMT7 (GuyaDiv)
+# unique(trees[trees$Forest=="Petite_Montagne_Tortue", -c(2,3,9,12,13,14)])
+# plot(unique(trees[trees$Forest=="Petite_Montagne_Tortue" & trees$Project=="AmaLin", c(4,5)]), pch=19)
+# points(unique(trees[trees$Forest=="Petite_Montagne_Tortue"  & trees$Project=="GuyaDiv", c(4,5)]), pch=19, col='red')
+# 
+# # Nouragues
+# unique(trees[trees$Forest=="Nouragues", -c(2,3,9,12,13,14)])
+# plot(unique(trees[trees$Forest=="Nouragues" & trees$Project=="Guyafor", c(4,5)]), pch=".", 
+#      xlim=c(min(unique(trees[trees$Forest=="Nouragues", 4])),
+#             max(unique(trees[trees$Forest=="Les_Nouragues", 4]), na.rm=TRUE)),
+#           ylim=c(min(unique(trees[trees$Forest=="Nouragues", 5])),
+#             max(unique(trees[trees$Forest=="Nouragues", 5]))))
+# points(unique(trees[trees$Forest=="Nouragues" & trees$Project=="GuyaDiv", c(4,5)]), pch=19, col='red')
+# points(unique(trees[trees$Forest=="Nouragues" & trees$Project=="AmaLin", c(4,5)]), pch=19, col='blue')
+# points(unique(trees[trees$Forest=="Les_Nouragues", c(4,5)]), pch=19, col='green')
+# # CSG
+# plot(unique(trees[trees$Forest=="CSG", c(4,5)]), pch=19, 
+#      xlim=c(min(unique(trees[trees$Forest=="CSG", 4])),
+#             max(unique(trees[trees$Forest=="Centre_Spatial", 4]), na.rm=TRUE)),
+#           ylim=c(min(unique(trees[trees$Forest=="Centre_Spatial", 5])),
+#             max(unique(trees[trees$Forest=="Centre_Spatial", 5]))))
+# points(unique(trees[trees$Forest=="Centre_Spatial", c(4,5)]), pch=19, col='red')
+# # Trinite
+# plot(unique(trees[trees$Forest=="Trinite", c(4,5)]), pch='*')
+# points(unique(trees[trees$Forest=="TriniteGentry", c(4,5)]), pch=19, col='red')
+# # Limonade
+# plot(unique(trees[trees$Forest=="Limonade", c(4,5)]), pch='*')
+# points(unique(trees[trees$Forest=="Saul_Diadema_(Limonade)", c(4,5)]), pch=19, col='red')
+# # Paracou
+#  plot(unique(trees[trees$Forest=="Paracou", c(4,5)]), pch='.')
+#  points(unique(trees[trees$Forest=="Crique_Paracou", c(4,5)]), pch='*', col='red')
+
+# Use date (df$FirstYear/ df$LastYear and df2$CensusYear)
+# Compute growth (Guiadiv df2$Circ, Guyafor df$FirstDiam, df$LastDiam)
+
+```
+
+
+### Define new inventory plots with an area of 1km^2
+
+```{r define-1km-inventory-sites} 
+trees <- readr::read_delim(file="~/Documents/projet_METRADICA/data/Inventaires/trees.csv", delim=",", col_types = c("c","c","c","d","d","i","c","c","d","d","d","c","c"), show_col_types=TRUE)
+xy_22 <- terra::vect(trees[trees$UTMZone==22, c("Xutm", "Yutm")],
+                  geom=c("Xutm","Yutm"), crs="epsg:32622")
+latlon_22 <- terra::project(xy_22, "epsg:4326")
+xy_21 <- terra::vect(trees[trees$UTMZone==21, c("Xutm", "Yutm")],
+                  geom=c("Xutm","Yutm"), crs="epsg:32621")
+latlon_21 <- terra::project(xy_21, "epsg:4326")
+trees[trees$UTMZone==21, c("Lon", "Lat")] <- terra::crds(latlon_21)
+trees[trees$UTMZone==22, c("Lon", "Lat")] <- terra::crds(latlon_22)
+# SpatRaster with 1km cells on French Guiana's borders
+load("~/Documents/projet_METRADICA/data/output.RData")
+borders <- terra::vect(output[[2]], layer="gadm36_GUF_0")
+borders_m <- terra::project(borders, "epsg:32622")
+rast_m <- terra::rast(borders_m, res=1000)
+rast <- terra::project(rast_m, "epsg:4326")
+# Attributes each observation to its inventory plot
+trees$numCell <- terra::cellFromXY(rast, as.matrix(trees[ ,c("Lon", "Lat")]))
+numCells <- unique(trees$numCell)
+trees <- trees %>%
+  group_by(numCell) %>%
+  mutate(new_idPlot=as.character(cur_group_id()))
+# Coordinates of cells or new inventory plots 
+# Get coordinates of the center of raster cells 
+trees$Lat_Plot <- terra::yFromCell(rast, trees$numCell) 
+trees$Lon_Plot <- terra::xFromCell(rast, trees$numCell)
+write.csv(trees, file ="~/Documents/projet_METRADICA/data/Inventaires/trees_coord.csv", row.names = FALSE)
+```
+
+### Presence-absence matrix
+
+```{r PA-table, include=FALSE}
+trees <- readr::read_delim(file="~/Documents/projet_METRADICA/data/Inventaires/trees_coord.csv", delim=",",
+                           col_types = readr::cols(new_idPlot="c",
+                                                   numCell="c"),
+                           show_col_types=TRUE)
+# presence/absence of each species on each plot
+nplot <- length(unique(trees$new_idPlot))
+species <- unique(trees$Taxon)
+nsp <- length(species)
+# presence/absence of each species on each plot
+PA <- matrix(0, nplot, nsp)
+rownames(PA) <- unique(trees$new_idPlot)
+colnames(PA) <- unique(trees$Taxon)
+  for (j in 1:nsp){
+    idx <- which(trees$Taxon == species[j])
+    PA[unique(trees$new_idPlot[idx]),j] <- 1 
+}
+
+# Remove very rare species 
+rare_species <- which(colSums(PA)<=2)
+trees <- trees[!(trees$Taxon %in% names(rare_species)),]
+PA <- PA[ ,which(colSums(PA)>2)]
+nsp <- ncol(PA)
+nplot <- nrow(PA)
+species <- colnames(PA)
+write.csv(PA, file ="~/Documents/projet_METRADICA/data/Inventaires/PA.csv")
+PA_anon <- PA
+rownames(PA_anon) <- paste0("site_", 1:nplot)
+colnames(PA_anon) <- paste0("sp_", 1:nsp)
+write.csv(PA_anon, file ="~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_files/PA.csv")
+knitr::kable(PA_anon[1:25,1:25], digits=1, booktabs=TRUE, align = 'c') %>%
+  kableExtra::kable_styling(latex_options=c("HOLD_position","striped"), full_width=FALSE) %>% 
+  kableExtra::save_kable(file="~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_files/PA_FG.png")
+```
+
+\cr 
+\cr
+```{r FG-PA, echo=FALSE, out.width=900, eval=TRUE}
+knitr::include_graphics("JSDM_French_Guiana_files/PA_FG.png")
+```
+
 # Assessing correlations between explanatory variables  
+
 ```{r var-corr}
 # Climatic variables
 clim_path <- "~/Documents/projet_METRADICA/data/data_raw/current_chelsa.tif"
@@ -597,6 +561,100 @@ knitr::include_graphics("JSDM_French_Guiana_files/figure-html/var-corr-1.png")
 ```
 
 # Design matrix 
+
+```{r design-matrix, echo=FALSE}
+# Spatial points of each plot
+trees <- readr::read_delim(file="~/Documents/projet_METRADICA/data/Inventaires/trees_coord.csv", delim=",",
+                           col_types = cols(new_idPlot="c", numCell="c"),
+                           show_col_types=TRUE)
+plots_coords <- unique(dplyr::select(trees, c(new_idPlot, Lon_Plot, Lat_Plot)))
+coords <- terra::vect(plots_coords, geom=c("Lon_Plot", "Lat_Plot"), crs="epsg:4326")
+
+terra::writeVector(coords, overwrite=TRUE, "~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/coords.shp")
+remove(trees)
+# Climatic variables 
+clim_path <- "~/Documents/projet_METRADICA/data/data_raw/current_chelsa.tif"
+load("~/Documents/projet_METRADICA/data/output.RData")
+# get interesting covariates among the climatic variables downloaded  
+clim_var <- terra::rast(clim_path,
+                        lyrs=c("bio1", "bio4", "bio12", "bio15", "cwd_penman"))
+names(clim_var) <- c("temp", "sais_temp", "prec", "sais_prec", "cwd")
+# APAWD 
+APAWD <- terra::rast("/home/clement/Documents/projet_METRADICA/data/apawd12m2.tif")
+
+# All explanatory variables 
+site_rast <- 
+
+# Data restricted to French Guiana's borders
+borders <- terra::vect(output[[2]], layer="gadm36_GUF_0")
+borders <- terra::project(borders, proj)
+clim_var <- terra::mask(clim_var, borders)
+APAWD <- terra::mask(APAWD, borders)
+data <- c(merge(APAWD, clim_var), clim_var)
+# Project to latlon coordinates system 
+
+
+
+
+
+# Add squared data
+clim_var2 <- c(clim_var, clim_var^2)
+names(clim_var2) <- c(names(clim_var), paste0(names(clim_var),
+                                              rep("2", dim(clim_var)[3])))
+
+
+# extract climatic data on each plot
+clim2 <-  terra::extract(clim_var2, coords)
+pos <- coords[,1:3]
+colnames(pos) <- c("Xutm","Yutm","plot")
+
+# Add squared data
+data_clim2 <- data.frame(cbind(clim2[,-1], pos))
+nparam <- ncol(data_clim2) -3
+library(tidyverse)
+
+# reduced centered data
+scaled_data_clim2 <- scale(data_clim2[,1:nparam])
+means <- attr(scaled_data_clim2,"scaled:center")
+sds <- attr(scaled_data_clim2,"scaled:scale")
+scaled_data_clim2 <- as_tibble(cbind(plot=data_clim2$plot,
+                                     scaled_data_clim2,
+                                     Xutm=data_clim2$Xutm, 
+                                     Yutm=data_clim2$Yutm))
+write.csv(scaled_data_clim2, file ="~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_files/scaled_clim.csv")
+
+## Design matrix
+X <- data.frame(intercept=rep(1,nplot),
+                dplyr::select(scaled_data_clim2,-Xutm,-Yutm, -plot))
+np <- ncol(X)
+
+# save raster in .tif format
+# Center and reduce climatic variables 
+# using means and standard deviations of climatic variables at inventory sites
+scaled_clim_var <- (clim_var2-means)/sds
+names(scaled_clim_var) <- names(clim_var2)
+terra::writeRaster(scaled_clim_var,
+                   "~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/scaled_clim.tif",
+                   gdal=c("COMPRESS=LZW", "PREDICTOR=2"), overwrite=TRUE)
+```
+
+The values of the explanatory variables, defined above, corresponding to the coordinates of the inventory plots are extracted and scaled to obtain the following data-set, where coordinates of the sites will then be used for spatial interpolation and to spatially represent the results.
+
+```{r current-environmental-data, echo=FALSE, out.width=800, eval=TRUE}
+scaled_data_clim2 <- read.csv("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_files/scaled_clim.csv")
+kable(head(scaled_data_clim2), digits=3) %>%
+  kable_styling(bootstrap_options = "striped", 
+                latex_options= c("HOLD_position","striped"),
+                full_width = FALSE) %>% 
+  kableExtra::save_kable(file="~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_files/X_FG.png")
+```
+
+\cr 
+\cr
+```{r FG-X, echo=FALSE, out.width=900, eval=TRUE}
+knitr::include_graphics("JSDM_French_Guiana_files/X_FG.png")
+```
+
 
 # Fitting joint species distribution model (JSDM) 
 
