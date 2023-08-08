@@ -18,7 +18,7 @@ csl: bib/journal-of-applied-ecology.csl
 knitr::opts_chunk$set(
   fig.align="center",
   fig.width=8, fig.height=6,
-  cache=TRUE,
+  cache=FALSE,
   collapse=TRUE,
   comment="#>",
   highlight=TRUE,
@@ -33,9 +33,7 @@ We want to fit JSDMS in French Guiana, one considering only bioclimatic variable
 ## jSDM R package
 
 ```{r install-jSDM, eval=FALSE}
-# mail vendredi prévoir installer jSDM et gecevar
 install.packages("jSDM")
-# Rtools
 ```
 
 ## gecevar R package
@@ -48,13 +46,15 @@ devtools::install_github("ghislainv/gecevar")
 
 # Load librairies
 
-```{r load-librairies, echo=FALSE, eval=FALSE}
+```{r load-librairies, echo=FALSE, eval=TRUE}
 library(terra)
 library(sf)
 library(jSDM)
 library(gecevar)
 library(readr)
 library(dplyr)
+library(kableExtra)
+library(foreach)
 ```
 
 # Datasets
@@ -141,9 +141,7 @@ We choose to use the following variables because they have an ecological meaning
 - **sais_prec**: the seasonality of precipitation as a coefficient of variation.
 - **cwd**: the annual climatic water deficit (mm) is based on monthly precipitation ($prec$) and potential evapotranspiration ($pet$) which is defined as the amount of evaporation that would occur in a month if a sufficient water source were available: $\mathrm{cwd}= \sum_{m=1}^{12}\min(0, \ \mathrm{prec}_m-\ \mathrm{pet}_m)$.
 
-We consider also the quadratic effects of these climate variables to perform a quadratic regression, which is more suitable for fitting a niche model than a linear regression. 
-
-```{r current-environmental-variables,}
+```{r current-environmental-variables}
 clim_path <- "~/Documents/projet_METRADICA/data/data_raw/current_chelsa.tif"
 load("~/Documents/projet_METRADICA/data/output.RData")
 # get interesting covariates among the climatic variables downloaded  
@@ -281,7 +279,7 @@ terra::plot(percent_GM_1km)
 knitr::include_graphics("JSDM_French_Guiana_files/figure-html/geomorpho-1km-1.png")
 ```
 
-### Available Plant water deficit (APAWD)
+###  Annual Plant Available Water Deficit (APAWD)
 
 ```{r APAWD-1km}
 APAWD <- terra::rast("/home/clement/Documents/projet_METRADICA/data/apawd12m2.tif")
@@ -295,8 +293,7 @@ knitr::include_graphics("JSDM_French_Guiana_files/figure-html/APAWD-1km-1.png")
 
 ## Resonse variable: Forest inventory 
 
-Forest inventories carried out in French Guiana, in the context of Guyafor, Guyadiv, Habitat,  Diadema, AmaLin and Paracou project are available.
-We use these forest inventories to calculate a matrix indicating the presence by a $1$ and the absence by a $0$ of the species at each site by removing observations for which the species is not identified and rare species with less than 5 observations on all sites. This matrix therefore records the occurrences of $290$ species at $36$ sites.
+Forest inventories carried out in French Guiana, in the context of Guyafor, Guyadiv, Habitat,  Diadema, AmaLin and Paracou project are available. However, the inventory sites considered in the different project haven't differ in shape and size.  Consequently, inventory sites were redefined as 1km cells. We use these forest inventories to calculate a matrix indicating the presence by a $1$ and the absence by a $0$ of the species at each inventory site by removing observations for which the species is not identified and rare species with less than 2 observations on all sites. This matrix therefore records the occurrences of $1246$ species at $544$ sites.
 
 ### Gather and clean data-sets
 
@@ -458,7 +455,7 @@ write.csv(unique(trees), file ="~/Documents/projet_METRADICA/data/Inventaires/tr
 ```
 
 
-### Define new inventory plots with an area of 1km^2
+### Define new inventory plots as 1km cells 
 
 ```{r define-1km-inventory-sites} 
 trees <- readr::read_delim(file="~/Documents/projet_METRADICA/data/Inventaires/trees.csv", delim=",", col_types = c("c","c","c","d","d","i","c","c","d","d","d","c","c"), show_col_types=TRUE)
@@ -491,7 +488,7 @@ write.csv(trees, file ="~/Documents/projet_METRADICA/data/Inventaires/trees_coor
 
 ### Presence-absence matrix
 
-```{r PA-table, include=FALSE}
+```{r PA-table, include=FALSE, eval=FALSE}
 trees <- readr::read_delim(file="~/Documents/projet_METRADICA/data/Inventaires/trees_coord.csv", delim=",",
                            col_types = readr::cols(new_idPlot="c",
                                                    numCell="c"),
@@ -520,8 +517,8 @@ write.csv(PA, file ="~/Documents/projet_METRADICA/data/Inventaires/PA.csv")
 PA_anon <- PA
 rownames(PA_anon) <- paste0("site_", 1:nplot)
 colnames(PA_anon) <- paste0("sp_", 1:nsp)
-write.csv(PA_anon, file ="~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_files/PA.csv")
-knitr::kable(PA_anon[1:25,1:25], digits=1, booktabs=TRUE, align = 'c') %>%
+write.csv(PA_anon, file ="~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_files/PA_anon.csv")
+knitr::kable(PA_anon[1:20,1:20], digits=1, booktabs=TRUE, align = 'c') %>%
   kableExtra::kable_styling(latex_options=c("HOLD_position","striped"), full_width=FALSE) %>% 
   kableExtra::save_kable(file="~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_files/PA_FG.png")
 ```
@@ -540,8 +537,8 @@ clim_path <- "~/Documents/projet_METRADICA/data/data_raw/current_chelsa.tif"
 load("~/Documents/projet_METRADICA/data/output.RData")
 # get interesting covariates among the climatic variables downloaded  
 clim_var <- terra::rast(clim_path,
-                        lyrs=c("bio1", "bio4", "bio12", "bio15", "cwd_penman"))
-names(clim_var) <- c("temp", "sais_temp", "prec", "sais_prec", "cwd")
+                        lyrs=c("bio1", "bio12", "bio15", "cwd_penman"))
+names(clim_var) <- c("temp", "prec", "sais_prec", "cwd")
 proj <- terra::crs(clim_var)
 
 # Data restricted to French Guiana's borders
@@ -560,42 +557,42 @@ terra::pairs(c(APAWD, clim_var), cor=TRUE,  use="pairwise.complete.obs", maxcell
 knitr::include_graphics("JSDM_French_Guiana_files/figure-html/var-corr-1.png")
 ```
 
+We can see that temperature seasonality is positively correlated with the precipitation and the annual plant available water deficit, so we won't take this variable into account when fitting JSDMs on French Guiana. As expected  the Climatic Water Deficit (CWD) is strongly and positively correlated with the annual plant available water deficit, so we won't consider the CWD for fitting JSDMs. We prefer to keep the APAWD, which takes into account soil variables and field capacity in addition to potential evapotranspiration (quote-Salman) and precipitation, unlike the CWD. 
+
 # Design matrix 
 
-```{r design-matrix, echo=FALSE}
+We also consider the quadratic effects of these climate variables to perform a quadratic regression, which is more suitable for fitting a niche model than a linear regression.
+
+```{r design-matrix, echo=FALSE, eval=FALSE}
 # Spatial points of each plot
 trees <- readr::read_delim(file="~/Documents/projet_METRADICA/data/Inventaires/trees_coord.csv", delim=",",
                            col_types = cols(new_idPlot="c", numCell="c"),
                            show_col_types=TRUE)
 plots_coords <- unique(dplyr::select(trees, c(new_idPlot, Lon_Plot, Lat_Plot)))
-coords <- terra::vect(plots_coords, geom=c("Lon_Plot", "Lat_Plot"), crs="epsg:4326")
-
-terra::writeVector(coords, overwrite=TRUE, "~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/coords.shp")
+colnames(plots_coords) <- c("idPlot", "Lon", "Lat")
+coords <- terra::vect(plots_coords, geom=c("Lon", "Lat"), crs="epsg:4326")
 remove(trees)
 # Climatic variables 
 clim_path <- "~/Documents/projet_METRADICA/data/data_raw/current_chelsa.tif"
 load("~/Documents/projet_METRADICA/data/output.RData")
 # get interesting covariates among the climatic variables downloaded  
 clim_var <- terra::rast(clim_path,
-                        lyrs=c("bio1", "bio4", "bio12", "bio15", "cwd_penman"))
-names(clim_var) <- c("temp", "sais_temp", "prec", "sais_prec", "cwd")
+                        lyrs=c("bio1", "bio12", "bio15", "cwd_penman"))
+names(clim_var) <- c("temp", "prec", "sais_prec", "cwd")
 # APAWD 
 APAWD <- terra::rast("/home/clement/Documents/projet_METRADICA/data/apawd12m2.tif")
+names(APAWD) <- "apawd"
+APAWD <- terra::project(APAWD, clim_var)
 
 # All explanatory variables 
-site_rast <- 
+clim_var <- c(APAWD, clim_var)
+
+# Project to latlon coordinates system 
+clim_var <- terra::project(clim_var, "epsg:4326")
 
 # Data restricted to French Guiana's borders
-borders <- terra::vect(output[[2]], layer="gadm36_GUF_0")
-borders <- terra::project(borders, proj)
-clim_var <- terra::mask(clim_var, borders)
-APAWD <- terra::mask(APAWD, borders)
-data <- c(merge(APAWD, clim_var), clim_var)
-# Project to latlon coordinates system 
-
-
-
-
+# borders <- terra::vect(output[[2]], layer="gadm36_GUF_0")
+# clim_var <- terra::mask(clim_var, borders)
 
 # Add squared data
 clim_var2 <- c(clim_var, clim_var^2)
@@ -605,27 +602,34 @@ names(clim_var2) <- c(names(clim_var), paste0(names(clim_var),
 
 # extract climatic data on each plot
 clim2 <-  terra::extract(clim_var2, coords)
-pos <- coords[,1:3]
-colnames(pos) <- c("Xutm","Yutm","plot")
-
+# Remove sites with missing climatic variables values
+# (check plots coordinates)
+clim2 <- stats::na.omit(clim2)
+plots_outside <- as.numeric(attr(clim2, "na.action"))
+plots_coords <- plots_coords[-plots_outside,]
+coords <- terra::vect(plots_coords, geom=c("Lon", "Lat"), crs="epsg:4326")
+terra::writeVector(coords, overwrite=TRUE, "~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/coords.shp")
+nplot <- nrow(plots_coords)
+PA <- readr::read_delim("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_files/PA_anon.csv", delim=",")
+PA <- PA[-plots_outside,]
+write.csv(PA, file ="~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_files/PA_anon.csv")
 # Add squared data
-data_clim2 <- data.frame(cbind(clim2[,-1], pos))
-nparam <- ncol(data_clim2) -3
-library(tidyverse)
+data_clim2 <- data.frame(cbind(clim2[,-1], plots_coords))
+nparam <- ncol(data_clim2) - 3
 
 # reduced centered data
 scaled_data_clim2 <- scale(data_clim2[,1:nparam])
 means <- attr(scaled_data_clim2,"scaled:center")
 sds <- attr(scaled_data_clim2,"scaled:scale")
-scaled_data_clim2 <- as_tibble(cbind(plot=data_clim2$plot,
+scaled_data_clim2 <- as_tibble(cbind(plot=data_clim2$idPlot,
                                      scaled_data_clim2,
-                                     Xutm=data_clim2$Xutm, 
-                                     Yutm=data_clim2$Yutm))
-write.csv(scaled_data_clim2, file ="~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_files/scaled_clim.csv")
+                                     Lon=data_clim2$Lon, 
+                                     Lat=data_clim2$Lat))
+write.csv(scaled_data_clim2[,-1], file ="~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_files/scaled_clim.csv")
 
 ## Design matrix
-X <- data.frame(intercept=rep(1,nplot),
-                dplyr::select(scaled_data_clim2,-Xutm,-Yutm, -plot))
+X <- data.frame(intercept=rep(1, nplot),
+                dplyr::select(scaled_data_clim2,-Lon,-Lat, -plot))
 np <- ncol(X)
 
 # save raster in .tif format
@@ -640,18 +644,18 @@ terra::writeRaster(scaled_clim_var,
 
 The values of the explanatory variables, defined above, corresponding to the coordinates of the inventory plots are extracted and scaled to obtain the following data-set, where coordinates of the sites will then be used for spatial interpolation and to spatially represent the results.
 
-```{r current-environmental-data, echo=FALSE, out.width=800, eval=TRUE}
-scaled_data_clim2 <- read.csv("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_files/scaled_clim.csv")
-kable(head(scaled_data_clim2), digits=3) %>%
-  kable_styling(bootstrap_options = "striped", 
-                latex_options= c("HOLD_position","striped"),
-                full_width = FALSE) %>% 
+```{r current-environmental-data, echo=FALSE, out.width=800, eval=FALSE}
+scaled_data_clim2 <- read_csv("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_files/scaled_clim.csv")
+kable(head(scaled_data_clim2[,-1]), digits=3) %>%
+  kable_styling(bootstrap_options = "striped",
+                full_width = FALSE) %>%
   kableExtra::save_kable(file="~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_files/X_FG.png")
 ```
 
 \cr 
 \cr
 ```{r FG-X, echo=FALSE, out.width=900, eval=TRUE}
+
 knitr::include_graphics("JSDM_French_Guiana_files/X_FG.png")
 ```
 
@@ -702,68 +706,310 @@ This model is equivalent to a multivariate GLMM $\mathrm{g}(\theta_{ij}) = \alph
 
 ## Parameters inference
 
-We fit a binomial joint species distribution model, including **two latent variables** and **random site effect** using the `jSDM_binomial_probit()` function to perform binomial probit regression considering all the species from the data described above, by performing $20 000$ iterations including $10 000$ of burn-in and we retain $N_{samp}=1 000$ values for each parameter of the model.
+### Selection of explanatory variables
 
-```{r fit-jSDM-FG-data, echo=TRUE, eval=FALSE} 
-PA_noname <- PA
-colnames(PA_noname) <- paste0("sp_", 1:ncol(PA))
-# Fitting JSDM from French Guiana data set
+We fit four binomial joint species distribution models, considering different combination of explanatory variables.
+We use the `jSDM_binomial_probit()` function to perform binomial probit regressions considering the presence-absence matrix of species on inventory sites, described above, by performing $30 000$ iterations including $15 000$ of burn-in and we retain $N_{samp}=1 000$ values for each parameter of the models. 
+
+```{r select-JSDM-FG, echo=TRUE, eval=FALSE} 
+# presence-absence matrix
+PA <- readr::read_delim("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_files/PA_anon.csv", delim=",")
+PA <- as.data.frame(PA[,-1])
+rownames(PA) <- PA[,1]
+PA <- PA[,-1]
+# Design matrix 
+scaled_data_clim2 <- readr::read_csv("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_files/scaled_clim.csv")
+# Fitting JSDMs from French Guiana dataset
+# M0 : Intercept only
 T1<- Sys.time()
-mod <- jSDM::jSDM_binomial_probit(
+mod0 <- jSDM::jSDM_binomial_probit(
   # Response variable 
-  presence_data = PA_noname, 
+  presence_data = PA, 
   # Explanatory variables 
-  site_formula = ~ temp + prec + sais_temp + sais_prec + cwd + temp2 + prec2 + sais_temp2 + sais_prec2 + cwd2,   
+  site_formula = ~ Int -1,   
+  site_data=data.frame(Int=rep(1, nrow(scaled_data_clim2))), 
+  n_latent=0,
+  site_effect="none",
+  # Chains
+  burnin= 15000, mcmc=15000, thin=15,
+  # Starting values
+  beta_start=0,
+  # Priors
+  mu_beta=0, V_beta=1,
+  # Various 
+  seed=1234, verbose=1)
+T2 <- Sys.time()
+T_0 <- difftime(T2,T1)
+save(mod0, T_0,
+     file="~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/mod0_FG.RData")
+
+# M1 : X=c(1, apawd, apawd2) 
+T1<- Sys.time()
+mod1 <- jSDM::jSDM_binomial_probit(
+  # Response variable 
+  presence_data = PA, 
+  # Explanatory variables 
+  site_formula = ~ apawd + apawd2,   
   site_data=scaled_data_clim2, 
+  n_latent=0,
+  site_effect="none", 
+  # Chains
+  burnin= 15000, mcmc=15000, thin=15,
+  # Starting values
+  beta_start=0,
+  # Priors
+  mu_beta=0, V_beta=1,
+  # Various 
+  seed=1234, verbose=1)
+T2 <- Sys.time()
+T_1 <- difftime(T2,T1)
+save(mod1, T_1,
+     file="~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/mod1_FG.RData")
+
+# M2 : X=c(1, cwd, cwd2) 
+T1<- Sys.time()
+mod2 <- jSDM::jSDM_binomial_probit(
+  # Response variable 
+  presence_data = PA, 
+  # Explanatory variables 
+  site_formula = ~ cwd + cwd2,   
+  site_data=scaled_data_clim2, 
+  n_latent=0,
+  site_effect="none", 
+  # Chains
+  burnin= 15000, mcmc=15000, thin=15,
+  # Starting values
+  beta_start=0,
+  # Priors
+  mu_beta=0, V_beta=1,
+  # Various 
+  seed=1234, verbose=1)
+T2 <- Sys.time()
+T_2 <- difftime(T2,T1)
+save(mod2, T_2,
+     file="~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/mod2_FG.RData")
+
+ 
+# M3:  
+# X=c(1, temp, prec, sais_prec, apawd, temp2, prec2, sais_prec2, apawd2)
+T1<- Sys.time()
+mod3 <- jSDM::jSDM_binomial_probit(
+  # Response variable 
+  presence_data = PA, 
+  # Explanatory variables 
+  site_formula = ~ temp + prec + sais_prec + apawd + temp2 + prec2 +  sais_prec2 + apawd2,   
+  site_data=scaled_data_clim2, 
+  n_latent=0,
+  site_effect="none", 
+  # Chains
+  burnin= 15000, mcmc=15000, thin=15,
+  # Starting values
+  beta_start=0,
+  # Priors
+  mu_beta=0, V_beta=1,
+  # Various 
+  seed=1234, verbose=1)
+T2 <- Sys.time()
+T_3 <- difftime(T2,T1)
+save(mod3, T_3,
+     file="~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/mod3_FG.RData")
+# M3:  
+# X=c(1, temp, prec, sais_prec, apawd, temp2, prec2, sais_prec2, apawd2)
+T1<- Sys.time()
+mod4 <- jSDM::jSDM_binomial_probit(
+  # Response variable 
+  presence_data = PA, 
+  # Explanatory variables 
+  site_formula = ~ temp + prec + sais_prec + cwd + temp2 + prec2 +  sais_prec2 + cwd2,   
+  site_data=scaled_data_clim2, 
+  n_latent=0,
+  site_effect="none", 
+  # Chains
+  burnin= 15000, mcmc=15000, thin=15,
+  # Starting values
+  beta_start=0,
+  # Priors
+  mu_beta=0, V_beta=1,
+  # Various 
+  seed=1234, verbose=1)
+T2 <- Sys.time()
+T_4 <- difftime(T2,T1)
+save(mod4, T_4,
+     file="~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/mod4_FG.RData")
+```
+
+```{r fit-JSDM-FG-comp-table, echo=FALSE, eval=FALSE}
+for(i in 0:4){
+load(paste0("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/mod", i, "_FG.RData"))
+}
+nsp <- ncol(mod0$model_spec$presence_data)
+nplot <- nrow(mod0$model_spec$presence_data)
+results <- data.frame(nsp, nplot,
+                      n_obs=nsp*nplot,  n_param=NA, p=NA,
+                      variables=c("None", "apawd", "cwd",
+                                  "temp, prec, sais_prec, apawd",
+                                  "temp, prec, sais_prec, cwd"),
+                      ngibbs="30000", Time = NA, dev=NA, chi2=NA)
+for(i in 0:4){
+  mod <- get(paste0("mod", i))
+  p <- nrow(mod$model_spec$beta_start)
+  results[i+1, "p"] <- p
+  results[i+1, "n_param"] <- p*nsp 
+  results[i+1, "dev"] <- mean(mod$mcmc.Deviance)
+  results[i+1, "Time"] <- as.numeric(get(paste0("T_", i)), units="secs")
+  # 100 * (Null deviance – Model's deviance)/Null deviance
+    results[i+1, "chi2"] <- ((results[1, "dev"] - mean(mod$mcmc.Deviance))/results[1, "dev"])*100
+}
+
+colnames(results) <- c("Species", "Sites",
+                       "Observations",
+                       "Estimated parameters",
+                       "Explanatory variables",
+                       "Design matrix columns",
+                       "Iterations performed",
+                       "Compilation time (s)",
+                       "Deviance",
+                       "Deviance explained (%)")
+rownames(results) <- c("Model null", "Model 1",
+                       "Model 2", "Model 3", "Model 4")
+
+knitr::kable(results, row.names=TRUE, digits=1, booktabs=TRUE,
+             escape=FALSE, align = 'l') %>%
+  kableExtra::kable_styling(latex_options=c("HOLD_position","striped"), full_width=FALSE) %>% 
+  kableExtra::save_kable(file="~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_files/comp_mod_FG.png")
+```
+
+\cr 
+\cr
+```{r FG-fitting-mod, echo=FALSE, out.width=1000, eval=TRUE}
+knitr::include_graphics("JSDM_French_Guiana_files/comp_mod_FG.png")
+```
+
+
+
+### Fitting the JSDM selected 
+
+We fit the binomial joint species distribution model selected above, including **two latent variables** and a **random site effect**.
+We use the `jSDM_binomial_probit()` function to perform binomial probit regressions considering the presence-absence matrix of species on inventory sites, described above, by performing $30 000$ iterations including $15 000$ of burn-in and we retain $N_{samp}=1 000$ values for each parameter of the model. 
+
+```{r fit-jSDM-FG, echo=TRUE, eval=FALSE} 
+# presence-absence matrix
+PA <- readr::read_delim("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_files/PA_anon.csv", delim=",")
+PA <- as.data.frame(PA[,-1])
+rownames(PA) <- PA[,1]
+PA <- PA[,-1]
+nplot <- nrow(PA)
+# Design matrix 
+scaled_data_clim2 <- readr::read_csv("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_files/scaled_clim.csv")
+# Fitting the JSDM selected from French Guiana dataset
+
+# Intercept only (X=1)
+T1<- Sys.time()
+modnull <- jSDM::jSDM_binomial_probit(
+  # Response variable 
+  presence_data = PA, 
+  # Explanatory variables 
+  site_formula = ~ Int - 1,    
+  site_data=data.frame(Int=rep(1,nplot)), 
   n_latent=2,
   site_effect="random", 
   # Chains
-  burnin= 10000, mcmc=10000, thin=10,
+  burnin= 15000, mcmc=15000, thin=15,
   # Starting values
-  alpha_start=0, beta_start=0,
-  lambda_start=0, W_start=0,
-  V_alpha=1, 
+  beta_start=0,
   # Priors
-  shape_Valpha=0.5,
-  rate_Valpha=0.0005,
   mu_beta=0, V_beta=10,
   mu_lambda=0, V_lambda=10,
   # Various 
   seed=1234, verbose=1)
 T2 <- Sys.time()
-T_FG <- difftime(T2,T1)
-save(mod, T_FG,
+T_null <- difftime(T2,T1)
+save(modnull, T_null,
+     file="~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/modnull_FG.RData")
+
+# X=c(1, temp, prec, sais_prec, apawd, temp2, prec2,  sais_prec2, apawd2)
+T1<- Sys.time()
+mod <- jSDM::jSDM_binomial_probit(
+  # Response variable 
+  presence_data = PA, 
+  # Explanatory variables 
+  site_formula = ~ temp + prec + sais_prec + apawd + temp2 + prec2 +  sais_prec2 + apawd2,   
+  site_data=scaled_data_clim2, 
+  n_latent=2,
+  site_effect="random", 
+  # Chains
+  burnin= 15000, mcmc=15000, thin=15,
+  # Starting values
+  beta_start=0,
+  # Priors
+  mu_beta=0, V_beta=10,
+  mu_lambda=0, V_lambda=10,
+  # Various 
+  seed=1234, verbose=1)
+T2 <- Sys.time()
+T_all <- difftime(T2,T1)
+save(mod, T_all,
      file="~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/mod_FG.RData")
 ```
 
 ```{r fit-JSDM-FG-table, echo=FALSE, eval=FALSE}
+load("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/modnull_FG.RData")
 load("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/mod_FG.RData")
-nsp<-ncol(mod$model_spec$presence_data)
-nplot<-nrow(mod$model_spec$presence_data)
-p <- ncol(mod$model_spec$beta_start)
-T_all <- as.numeric(T_FG,units="secs")
-results <- data.frame(nsp,nplot,
-                      n_obs=nsp*nplot,n_param=(p+1)*nsp+2*nsp-1+2*nplot+nplot+1,
-                      ngibbs="20000","Time"= T_all, dev=mean(mod$mcmc.Deviance))
-colnames(results)<- c("Number of species", "Number of sites", "Number of observations","Number of estimated parameters", "Iterations performed","Compilation time (s)","Deviance")
-knitr::kable(results, row.names=F, digits=1, booktabs=TRUE, align = 'c') %>%
+nsp <- ncol(mod$model_spec$presence_data)
+nplot <- nrow(mod$model_spec$presence_data)
+results <- data.frame(nsp, nplot,
+                      n_obs=nsp*nplot,  n_latent=mod$model_spec$n_latent,
+                      n_param=NA, p=NA,
+                      variables=c("None",  "temp, prec, sais_prec, apawd"),
+                      ngibbs="30000", Time = NA, dev=NA, chi2=NA)
+results[1, "p"] <- nrow(modnull$model_spec$beta_start)
+results[2, "p"] <- nrow(mod$model_spec$beta_start)
+results[1, "n_param"] <- nsp + modnull$model_spec$n_latent*nsp -1 + nplot + 1 +
+  modnull$model_spec$n_latent*nplot 
+results[2, "n_param"] <-  nrow(mod$model_spec$beta_start)*nsp + 
+  mod$model_spec$n_latent*nsp -1 + nplot + 1 + 
+  mod$model_spec$n_latent*nplot 
+results[1, "dev"] <- mean(modnull$mcmc.Deviance)
+results[2, "dev"] <- mean(mod$mcmc.Deviance)
+results[1, "Time"] <- as.numeric(T_null, units="secs")
+results[2, "Time"] <- as.numeric(T_all, units="secs")
+# 100 * (Null deviance – Model's deviance)/Null deviance
+results[2, "chi2"] <- ((results[1, "dev"] - mean(mod$mcmc.Deviance))/results[1, "dev"])*100
+
+colnames(results) <- c("Species", "Sites",
+                       "Observations",
+                       "Latent variables",
+                       "Estimated parameters",
+                       "Explanatory variables",
+                       "Design matrix columns",
+                       "Iterations performed",
+                       "Compilation time (s)",
+                       "Deviance",
+                       "Deviance explained (%)")
+rownames(results) <- c("Model null", "Model")
+# Sys.setenv("OPENSSL_CONF"="/dev/null")
+# sudo apt-get install libmagick++-dev 
+# install.packages("magick")
+knitr::kable(results, row.names=TRUE, digits=1, booktabs=TRUE,
+             escape=FALSE, align = 'l') %>%
   kableExtra::kable_styling(latex_options=c("HOLD_position","striped"), full_width=FALSE) %>% 
   kableExtra::save_kable(file="~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_files/mod_FG.png")
-
 ```
 
 \cr 
 \cr
-```{r FG-fitting-mod, echo=FALSE, out.width=1000, eval=FALSE}
+```{r FG-table, echo=FALSE, out.width=1000, eval=TRUE}
 knitr::include_graphics("JSDM_French_Guiana_files/mod_FG.png")
 ```
 
+## Evaluation of MCMC convergence 
 
 The MCMC algorithm is used to obtain draws from the posterior distribution of the parameters. We use as estimator for each parameter the mean of the $N_{samp}$ values estimated in corresponding MCMC chain and we save the estimated parameters in .csv format.
 
 ```{r save-params, echo=TRUE}
 load("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/mod_FG.RData")
-
+# Design matrix 
+scaled_data_clim2 <- readr::read_csv("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_files/scaled_clim.csv")
 species <- colnames(mod$model_spec$presence_data)
 nplot <- nrow(mod$model_spec$presence_data)
 nsp <- ncol(mod$model_spec$presence_data)
@@ -779,10 +1025,11 @@ V_alpha <- mean(mod$mcmc.V_alpha)
 W1 <- colMeans(mod$mcmc.latent[["lv_1"]])
 W2 <- colMeans(mod$mcmc.latent[["lv_2"]])
 
-params_sites <- data.frame(plot = scaled_data_clim2$plot,
-                           Xutm = scaled_data_clim2$Xutm,
-                           Yutm = scaled_data_clim2$Yutm,
+params_sites <- data.frame(plot = 1:nrow(scaled_data_clim2),
+                           Lon = scaled_data_clim2$Lon,
+                           Lat = scaled_data_clim2$Lat,
                            alphas, V_alpha = rep(V_alpha,nplot),W1,W2)
+write.csv2(params_sites, "~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/params_sites.csv")
 
 ### fixed species effect lambdas and betas 
 lambdas <- matrix(0,nsp,n_latent)
@@ -799,9 +1046,9 @@ for (j in 1:nsp){
 colnames(betas) <- colnames(mod$mcmc.sp[[1]])[1:np]
 params_species <- data.frame(species=species, Id_species = c(1:nsp),
                              betas, lambda_1 = lambdas[,1], lambda_2 = lambdas[,2])
+write.csv2(params_species, "~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/params_species.csv")
 ```
 
-## Evaluation of MCMC convergence 
 
 We visually evaluate the convergence of MCMCs by representing the trace and density *a posteriori* of the estimated parameters.
 
@@ -874,9 +1121,9 @@ hist(mod$probit_theta_latent,col="light blue",  main = "probit(theta) estimated"
 hist(mod$theta_latent, breaks=pretty, col="light blue", main = "theta estimated")
 ```
 
-```{r results-FG2, echo=FALSE, out.width=700, eval=FALSE}
+```{r results-FG2, echo=FALSE, out.width=700, eval=TRUE}
 knitr::include_graphics(paste0("JSDM_French_Guiana_files/figure-html/results-FG-"
-                               , 1:18, ".png"))
+                               , 1:17, ".png"))
 ```
 
 Overall, the traces and densities of the parameters indicate the convergence of the algorithm. Indeed, we observe on the traces that the values oscillate around averages without showing any upward or downward trend and we see that the densities are quite smooth and for most of them of Gaussian form.
@@ -887,37 +1134,46 @@ Overall, the traces and densities of the parameters indicate the convergence of 
 
 ```{r proba_representation}
 
-load("~/Documents/presentations/workshop-Metradica-March2023/JSDM_French_Guiana_cache/output.RData")
+load("~/Documents/projet_METRADICA/data/output.RData")
+# presence-absence matrix
+PA <- readr::read_delim("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_files/PA_anon.csv", delim=",")
+load("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/mod_FG.RData")
+params_sites <-  read.csv2("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/params_sites.csv")
+PA <- as.data.frame(PA[,-1])
+PA <- PA[,-1]
 # French Guiana borders
-FG_borders <- terra::vect(output[[2]], layer = "gadm36_GUF_0")
-FG_borders <- terra::project(FG_borders, terra::crs(xy))
+FG_borders <- terra::vect(output[[2]], layer="gadm36_GUF_0")
 
 # Observed presence absence
-id_pres <- which(PA[, 264]==1)
-id_abs <- which(PA[, 264]==0)
-obs_pres <-  terra::vect(terra::crds(xy[id_pres,]),
-                         type="point", crs=terra::crs(xy))
-obs_abs <-  terra::vect(terra::crds(xy[id_abs,]),
-                        type="point", crs=terra::crs(xy))
+id_pres <- which(PA[, which.max(colSums(PA))]==1)
+id_abs <- which(PA[, which.max(colSums(PA))]==0)
+obs_pres <-  terra::vect(params_sites[id_pres, c("Lat", "Lon")],
+                         geom=c("Lon", "Lat"), 
+                         crs="epsg:4326")
+obs_abs <-  terra::vect(params_sites[id_abs, c("Lat", "Lon")],
+                        geom=c("Lon", "Lat"),
+                        crs="epsg:4326")
 # Representation
 par(mfrow=c(1,1))
 terra::plot(FG_borders, col="lightgray",
-            main="Observed occurences of Tabernaemontana undulata",
+            main=paste0("Observed occurences of sp_", which.max(colSums(PA))),
             cex.main=1.4)
 terra::points(obs_pres, pch=16, cex=1.3)
 terra::points(obs_abs, pch=1, cex=1.3)
 legend("right", legend=c("presence","absence"), pch=c(16,1))
 
 # Estimated probabilities of presence
-theta_latent_sp <- terra::vect(data.frame(terra::crds(xy), mod$theta_latent),
-                               crs=terra::crs(xy), geom=c("x","y"))
+coords <- terra::vect("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/coords.shp")
+theta_latent_sp <- terra::vect(data.frame(terra::crds(coords), mod$theta_latent),
+                               crs=terra::crs(coords), geom=c("x","y"))
 # Representation
 # define groups for mapping
 cuts <- c(0,0.1,0.2,0.3,0.4,0.5,0.7,0.9,1)
 col <- c('red3','red','orange','yellow', 'yellow green',
          'green3', 'forest green','dark green')
 terra::plot(FG_borders, col="lightgray",
-            main ="Estimated probabilities of presence for Tabernaemontana undulata",
+            main =paste0("Estimated probabilities of presence for sp_",
+                         which.max(colSums(PA))),
             cex.main=1.4)
 terra::plot(theta_latent_sp, y=264, pch=20, cex=1.3,
             legend="topright", plg=list(cex=1.01), add=TRUE, col=col,
@@ -925,8 +1181,7 @@ terra::plot(theta_latent_sp, y=264, pch=20, cex=1.3,
 ```
            
                
-```{r proba-representation2, echo=FALSE,  fig.show = "hold", out.width = "50%",  fig.align = "default", eval=FALSE}
-
+```{r proba-representation2, echo=FALSE,  fig.show = "hold", out.width = "50%",  fig.align = "default", eval=TRUE}
                knitr::include_graphics(c("JSDM_French_Guiana_files/figure-html/proba_representation-1.png","JSDM_French_Guiana_files/figure-html/proba_representation-2.png"))
                                        
 ```
@@ -936,20 +1191,24 @@ It can be observed that the inventory sites where this species was observed matc
 
 ## Species richness 
 
+### Estimated vs observed 
+
 Species richness also called diversity $\alpha$ reflects the number of species coexisting in a given environment and is computed by summing the number of species present on each site.  
                
 We spatially represent the species richness observed at each inventory site defined by $R_i=\sum\limits_ {j=1}^{n_{species}} y_{ij}$ and the species richness estimated, following @Scherrer2020, by summing the estimated occurrence probabilities of all species on each site: $\widehat{R}_i=\sum\limits_ {j=1}^{n_{species}} \widehat{\theta}_{ij}$.
 
 ```{r species-richness-representation}
+coords <- terra::vect( "~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/coords.shp")
+
 # French Guiana borders
+load("~/Documents/projet_METRADICA/data/output.RData")
 FG_borders <- terra::vect(output[[2]], layer = "gadm36_GUF_0")
-FG_borders <- terra::project(FG_borders, terra::crs(xy))
 # Representation of observed species richness 
 
 species_richness_obs <- data.frame(species_richness_obs=rowSums(PA))
-species_richness_obs_sp <- terra::vect(cbind(terra::crds(xy),
+species_richness_obs_sp <- terra::vect(cbind(terra::crds(coords),
                                              species_richness_obs),
-                                       geom=c("x","y"), crs=terra::crs(xy))
+                                       geom=c("x","y"), crs=terra::crs(coords))
 par(mfrow=c(1,1))
 cuts <- c(0,40,80,100, 120, 140, 160, 200, ncol(mod$theta_latent))
 col <- c('red4','red','orange','yellow',
@@ -966,9 +1225,9 @@ terra::plot(species_richness_obs_sp, 'species_richness_obs',
 # Representation of estimated species richness 
 par(mfrow=c(1,1))
 species_richness <- data.frame(species_richness= apply(mod$theta_latent,1,sum))
-species_richness_sp <- terra::vect(cbind(terra::crds(xy),
+species_richness_sp <- terra::vect(cbind(terra::crds(coords),
                                          species_richness), 
-                                   geom=c("x","y"), crs=terra::crs(xy))
+                                   geom=c("x","y"), crs=terra::crs(coords))
 terra::plot(FG_borders, col="lightgray",
             main ="Estimated species richness",
             cex.main=1.4)
@@ -978,6 +1237,7 @@ terra::plot(species_richness_sp,
             legend="topright", plg=list(cex=1.01),
             type="interval")
 # Comparison between observed and estimated species richness at inventory sites
+par(mfrow=c(1,1), mar=c(5, 4, 4, 2))
 plot(species_richness_obs$species_richness_obs,
      species_richness$species_richness,
      main="Species richness", xlab="observed",
@@ -986,15 +1246,80 @@ plot(species_richness_obs$species_richness_obs,
 abline(a=0,b=1,col='red')
 ```
                
-```{r species-richness-representation2, echo=FALSE, fig.show = "hold", out.width = "50%", fig.align = "default", eval=FALSE}
+```{r species-richness-representation2, echo=FALSE, fig.show = "hold", out.width = "50%", fig.align = "default", eval=TRUE}
+
                knitr::include_graphics(c("JSDM_French_Guiana_files/figure-html/species-richness-representation-2.png","JSDM_French_Guiana_files/figure-html/species-richness-representation-1.png"))
 ```
                
-```{r species-richness-representation3, echo=FALSE, fig.show = "hold", out.width = "50%", fig.align = "center", eval=FALSE}
+```{r species-richness-representation3, echo=FALSE, fig.show = "hold", out.width = "50%", fig.align = "center", eval=TRUE}
+
                knitr::include_graphics("JSDM_French_Guiana_files/figure-html/species-richness-representation-3.png")
 ```
                
-It can be seen that the observed species richness on the inventory sites corresponds fairly well to that estimated by summing the estimated probabilities of occurrence of all species on each site.    
+It can be seen that the observed species richness on the inventory sites corresponds fairly well to that estimated by summing the estimated probabilities of occurrence of all species on each site.   
+
+### Estimated using JSDM vs SDM 
+
+We compare the species richness obtained from the species' occurrence probabilities fitted by a SDM and a JSDM considering the same explanatory variables. 
+
+```{r species-richness-JSDM-SDM-representation}
+
+coords <- terra::vect( "~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/coords.shp")
+
+# French Guiana borders
+FG_borders <- terra::vect(output[[2]], layer = "gadm36_GUF_0")
+# Representation of observed species richness 
+
+species_richness_obs <- data.frame(species_richness_obs=rowSums(PA))
+species_richness_obs_sp <- terra::vect(cbind(terra::crds(coords),
+                                             species_richness_obs),
+                                       geom=c("x","y"), crs=terra::crs(coords))
+par(mfrow=c(1,1))
+cuts <- c(0,40,80,100, 120, 140, 160, 200, ncol(mod$theta_latent))
+col <- c('red4','red','orange','yellow',
+               'yellow green', 'green3',
+               'forest green','dark green')
+
+terra::plot(FG_borders, col="lightgray",
+            main ="Observed species richness",
+            cex.main=1.4)
+terra::plot(species_richness_obs_sp, 'species_richness_obs',
+            breaks=cuts, col=col,
+            pch=20, cex=1.2, add=TRUE, 
+            legend="topright", plg=list(cex=1.01), type="interval")
+# Representation of estimated species richness using SDM
+load("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/mod3_FG.RData")
+par(mfrow=c(1,1))
+species_richness_mod3 <- data.frame(species_richness= apply(mod3$theta_latent,1,sum))
+species_richness_sp <- terra::vect(cbind(terra::crds(coords),
+                                         species_richness_mod3), 
+                                   geom=c("x","y"), crs=terra::crs(coords))
+terra::plot(FG_borders, col="lightgray",
+            main ="Estimated species richness using SDM",
+            cex.main=1.4)
+terra::plot(species_richness_sp,
+            'species_richness', col=col,
+            breaks=cuts, pch=20, cex=1.2, add=TRUE, 
+            legend="topright", plg=list(cex=1.01),
+            type="interval")
+# Comparison between observed and estimated species richness at inventory sites
+par(mfrow=c(1,1), mar=c(5, 4, 4, 2))
+plot(species_richness_mod3$species_richness,
+     species_richness$species_richness,
+     main="Species richness", xlab="Estimated using SDM",
+     ylab="Estimated using JSDM",
+     cex.main=1.4)
+abline(a=0,b=1,col='red')
+```
+               
+```{r species-richness-JSDM-SDM-representation2, echo=FALSE, fig.show = "hold", out.width = "50%", fig.align = "default", eval=TRUE}
+               knitr::include_graphics(c("JSDM_French_Guiana_files/figure-html/species-richness-JSDM-SDM-representation-2.png","JSDM_French_Guiana_files/figure-html/species-richness-JSDM-SDM-representation-1.png"))
+```
+               
+```{r species-richness-JSDM-SDM-representation3, echo=FALSE, fig.show = "hold", out.width = "50%", fig.align = "center", eval=TRUE}
+               knitr::include_graphics("JSDM_French_Guiana_files/figure-html/species-richness-JSDM-SDM-representation-3.png")
+```
+    
      
 ## Residual correlation 
 
@@ -1020,7 +1345,7 @@ write.csv(R, row.names = F,
           file ="~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/R.csv")
 ```
                
-We represent the full residual correlation matrix for the fifty more abundant species and the residual correlation matrix with only "significant" correlations, whose $ 95 \%$ HPD interval over the MCMC samples does not contain zero.
+We represent the full residual correlation matrix for the fifty more abundant species and the residual correlation matrix with only "significant" correlations, whose  95% HPD interval over the MCMC samples does not contain zero.
                
 ```{r plot-residual-correlation}
 mod_50 <- jSDM::jSDM_binomial_probit(
@@ -1028,7 +1353,7 @@ mod_50 <- jSDM::jSDM_binomial_probit(
   presence_data = PA[ ,order(colSums(PA),
                              decreasing = TRUE)[1:50]], 
   # Explanatory variables 
-  site_formula = ~ temp + prec + sais_temp + sais_prec + cwd + temp2 + prec2 + sais_temp2 + sais_prec2 + cwd2,   
+  site_formula = ~ temp + prec + sais_prec + apawd + temp2 + prec2 + sais_prec2 + apawd2, 
   site_data=scaled_data_clim2, 
   n_latent=2,
   site_effect="random", 
@@ -1041,7 +1366,7 @@ mod_50 <- jSDM::jSDM_binomial_probit(
   # Priors
   shape_Valpha=0.1,
   rate_Valpha=0.1,
-  mu_beta=0, V_beta=c(10,rep(1,np-1)),
+  mu_beta=0, V_beta=1,
   mu_lambda=0, V_lambda=1,
   # Various 
   seed=1234, verbose=1)
@@ -1051,7 +1376,7 @@ jSDM::plot_residual_cor(mod_50, tl.cex = 0.6)
 jSDM::plot_residual_cor(mod_50, prob=0.95, tl.cex = 0.6)
 ```
 
-```{r res-cor-representation, echo=FALSE, fig.show = "hold", out.width = "100%", fig.align = "center", eval=FALSE}
+```{r res-cor-representation, echo=FALSE, fig.show = "hold", out.width = "100%", fig.align = "center", eval=TRUE}
 knitr::include_graphics("JSDM_French_Guiana_files/figure-html/plot-residual-correlation-1.png")
 knitr::include_graphics("JSDM_French_Guiana_files/figure-html/plot-residual-correlation-2.png")
 ```
@@ -1062,18 +1387,19 @@ This representation of associations between species allows us to observe the pos
 
 The presence of a spatial structure where observations close to each other are more similar than those far away (spatial auto-correlation) is a prerequisite for the application of geostatistics and from the previous spatial representations it seems to be satisfied.  
 
-Thus, it is possible to interpolate sites' parameters for the whole island from those estimated for the inventory plots using the spatial interpolation method called regularized spline with tension (**RST**) from [`GRASS GIS`](https://grass.osgeo.org/) software via `rgrass7` R package.
+Thus, it is possible to interpolate sites' parameters for the whole area from those estimated for the inventory plots using the spatial interpolation method called regularized spline with tension (**RST**) from [`GRASS GIS`](https://grass.osgeo.org/) software via `rgrass7` R package.
 This method is described in the article [@Mitasova1993].
 
 ## Random site effect $\alpha$
 
 ```{r initialize-GRASS}
 ## Initialize GRASS
-setwd("~~/Documents/projet_METRADICA/JSDM_French_Guiana/")
+setwd("~/Documents/projet_METRADICA/JSDM_French_Guiana/")
 Sys.setenv(LD_LIBRARY_PATH=paste("/usr/lib/grass78/lib", Sys.getenv("LD_LIBRARY_PATH"),sep=":"))
-library(rgrass7)
-# use a georeferenced raster
-system('grass -c "~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/scaled_clim.tif" grassdata/interpolation')
+library(rgrass)
+
+# use a georeferenced raster 
+system('grass -c "~/Documents/projet_METRADICA/data/data_raw/current_chelsa.tif" grassdata/interpolation')
 # connect to grass database
 initGRASS(gisBase="/usr/lib/grass78", 
           gisDbase="grassdata",
@@ -1084,46 +1410,56 @@ initGRASS(gisBase="/usr/lib/grass78",
 We interpolate the random site effect at French Guiana scale using RST method.
 
 ```{r RST_alpha}
-library(rgrass7)
+
+library(rgrass)
 # Import sites parameters
-params_sites <- read.csv("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/params_sites.csv")
+params_sites <- read.csv2("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/params_sites.csv")
 # inventory sites coordinates in UTM38S projection 
-xy <- terra::vect("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/coords.shp")
+coords <- terra::vect("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/coords.shp")
 
 # alpha 
-alpha_sp <- terra::vect(data.frame(alpha=params_sites$alphas, terra::crds(xy)),
-                        geom=c("x","y"), crs=terra::crs(xy))
-rgrass7::write_VECT(alpha_sp, "alpha", flags="overwrite")
+alpha_sp <- terra::vect(data.frame(alpha=params_sites$alphas, terra::crds(coords)),
+                        geom=c("x","y"), crs=terra::crs(coords))
+clim <- terra::rast("~/Documents/projet_METRADICA/data/data_raw/current_chelsa.tif", lyrs=1)
+# Project in epsg:32622
+alpha_sp <- terra::project(alpha_sp,  clim)
+rgrass::write_VECT(alpha_sp, "alpha", flags=c("o", "overwrite"))
 # Re-sample with RST
 # for punctual data use function v.surf.rst
 system("v.surf.rst --overwrite --verbose -t tension=3 input=alpha zcolumn=alpha \\
-       smooth=0.0 elevation=alpha_rst")
+        elevation=alpha_rst")
 # Export
 system("r.out.gdal --overwrite input=alpha_rst \\
-			 output=JSDM_French_Guiana_cache/alpha_rst.tif type=Float32 \\
+			 output=JSDM_French_Guiana_cache/alpha_rst_m.tif type=Float32 \\
 			 createopt='compress=lzw,predictor=2'")
 # Representation
-alpha_rst <- terra::rast("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/alpha_rst.tif")
+alpha_rst_m <- terra::rast("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/alpha_rst_m.tif")
+alpha_rst <- terra::project(alpha_rst_m, terra::crs(coords))
+
 # Data restricted to French Guiana's borders
-borders <- terra::vect(output[[2]], layer="gadm36_MDG_0")
+borders <- terra::vect(output[[2]], layer="gadm36_GUF_0")
 borders <- terra::project(borders, terra::crs(alpha_rst))
 alpha_rst  <- terra::mask(alpha_rst, borders)
 # terra::writeRaster(alpha_rst, 
 #                    filename="~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/alpha_rst.tif",
 #                    gdal=c("COMPRESS=LZW", "PREDICTOR=2"), overwrite=TRUE)
 terra::plot(alpha_rst, main="Site effect alpha interpolated by RST")
-alpha_rst_xy <- terra::extract(alpha_rst, xy)[,"alpha_rst"]
+
+alpha_rst_xy <- terra::extract(alpha_rst, coords)[,"alpha_rst"]
 plot(alpha_rst_xy, params_sites$alphas,
-     xlab="alpha interpolated by RST",
-     ylab="alpha estimated by JSDM",
-     main="Random site effect")
+            xlab="alpha interpolated by RST",
+            ylab="alpha estimated by JSDM",
+            main="Random site effect")
 abline(a=0, b=1, col='red')
 
+terra::writeRaster(alpha_rst,
+                   "~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/alpha_rst.tif",
+                   gdal=c("COMPRESS=LZW", "PREDICTOR=2"), overwrite=TRUE)
 # Center interpolated site effect 
 alpha_rst_centered <- terra::app(alpha_rst, fun=scale, scale=FALSE)
 names(alpha_rst_centered) <- names(alpha_rst)
 terra::plot(alpha_rst_centered, main="Site effect alpha interpolated by RST")
-alpha_rst_centered_xy <- terra::extract(alpha_rst_centered, xy)[,"alpha_rst"]
+alpha_rst_centered_xy <- terra::extract(alpha_rst_centered, coords)[,"alpha_rst"]
 plot(alpha_rst_centered_xy, params_sites$alphas,
      xlab="alpha interpolated by RST",
      ylab="alpha estimated by JSDM",
@@ -1137,7 +1473,7 @@ terra::writeRaster(alpha_rst_centered,
 We represent the random site effect interpolated at French Guiana scale. 
 
 ```{r plot-RST-alpha, echo=FALSE, out.width=800, eval=FALSE}
-knitr::include_graphics("JSDM_French_Guiana_files/figure-html/RST_alpha-1.png")
+knitr::include_graphics(paste0("JSDM_French_Guiana_files/figure-html/RST_alpha-", 1:4, ".png"))
 ```
 
 ## Latent variables $W$
@@ -1146,26 +1482,31 @@ We interpolate the first axis of latent variables at the French Guiana scale usi
 
 ```{r RST-W1}
 # W1 
-W1_sp <- terra::vect(data.frame(W1=params_sites$W1, terra::crds(xy)),
-                     geom=c("x","y"), crs=terra::crs(xy))
-rgrass7::write_VECT(W1_sp, "W1", flags="overwrite")
+W1_sp <- terra::vect(data.frame(W1=params_sites$W1, terra::crds(coords)),
+                     geom=c("x","y"), crs=terra::crs(coords))
+# Project in epsg:32622
+clim <- terra::rast("~/Documents/projet_METRADICA/data/data_raw/current_chelsa.tif", lyrs=1)
+W1_sp <- project(W1_sp, clim)
+rgrass::write_VECT(W1_sp, "W1", flags="overwrite")
 # Re-sample with RST
-# Note: use mask=FG to save computation time
 # for punctual data use function v.surf.rst
 system("v.surf.rst --overwrite --verbose -t tension=3 input=W1 zcolumn=W1 \\
        smooth=0.0 elevation=W1_rst")
 # Export
 system("r.out.gdal --overwrite input=W1_rst \\
-			 output=JSDM_French_Guiana_cache/W1_rst.tif type=Float32 \\
-			 createopt='compress=lzw,predictor=2'")
+			 output=JSDM_French_Guiana_cache/W1_rst_m.tif type=Float32 \\
+			 createopt='compress=lzw, predictor=2'")
 # Representation
-W1_rst <- terra::rast("JSDM_French_Guiana_cache/W1_rst.tif")
+W1_rst_m <- terra::rast("JSDM_French_Guiana_cache/W1_rst_m.tif")
+W1_rst <- terra::project(W1_rst_m, terra::crs(coords))
+terra::writeRaster(W1_rst, "JSDM_French_Guiana_cache/W1_rst.tif",
+                   gdal=c("COMPRESS=LZW", "PREDICTOR=2"), overwrite=TRUE)
 # Data restricted to French Guiana's borders
-borders <- terra::vect(output[[2]], layer="gadm36_MDG_0")
+borders <- terra::vect(output[[2]], layer="gadm36_GUF_0")
 borders <- terra::project(borders, terra::crs(W1_rst))
 W1_rst  <- terra::mask(W1_rst, borders)
 terra::plot(W1_rst, main="Latent variable W1 interpolated by RST")
-W1_rst_xy <- terra::extract(W1_rst, xy)[, "W1_rst"]
+W1_rst_xy <- terra::extract(W1_rst, coords)[, "W1_rst"]
 plot(W1_rst_xy, params_sites$W1,
      xlab="W1 interpolated by RST",
      ylab="W1 estimated by JSDM", 
@@ -1176,7 +1517,7 @@ abline(a=0, b=1, col='red')
 W1_rst_centered <- terra::app(W1_rst, scale, scale=FALSE)
 names(W1_rst_centered) <- names(W1_rst)
 terra::plot(W1_rst_centered, main="First latent axis interpolated by RST")
-W1_rst_centered_xy <- terra::extract(W1_rst_centered, xy)[,"W1_rst"]
+W1_rst_centered_xy <- terra::extract(W1_rst_centered, coords)[,"W1_rst"]
 plot(W1_rst_centered_xy, params_sites$W1,
      xlab="W1 interpolated by RST",
      ylab="W1 estimated by JSDM",
@@ -1189,7 +1530,7 @@ terra::writeRaster(W1_rst_centered, "JSDM_French_Guiana_cache/W1_rst_centered.ti
 We represent the first latent variable interpolated at French Guiana scale. 
 
 ```{r plot-RST-W1, echo=FALSE, out.width=800, eval=FALSE}
-knitr::include_graphics("JSDM_French_Guiana_files/figure-html/RST-W1-1.png")
+knitr::include_graphics(paste0("JSDM_French_Guiana_files/figure-html/RST-W1-", 1:4, ".png")
 ```
 
 
@@ -1197,9 +1538,11 @@ We interpolate the second axis of latent variables at the French Guiana scale us
 
 ```{r RST-W2}
 # W2 
-W2_sp <- terra::vect(data.frame(W2=params_sites$W2, terra::crds(xy)),
-                     geom=c("x","y"), crs=terra::crs(xy))
-rgrass7::write_VECT(W2_sp, "W2", flags="overwrite")
+W2_sp <- terra::vect(data.frame(W2=params_sites$W2, terra::crds(coords)),
+                     geom=c("x","y"), crs=terra::crs(coords))
+# Project in epsg:32622
+W2_sp <- project(W2_sp, clim)
+rgrass::write_VECT(W2_sp, "W2", flags="overwrite")
 # Re-sample with RST
 # Note: use mask=French Guiana to save computation time
 # for punctual data use function v.surf.rst
@@ -1207,16 +1550,19 @@ system("v.surf.rst --overwrite --verbose -t tension=3 input=W2 zcolumn=W2 \\
        smooth=0.0 elevation=W2_rst")
 # Export
 system("r.out.gdal --overwrite input=W2_rst \\
-			 output=JSDM_French_Guiana_cache/W2_rst.tif type=Float32 \\
+			 output=JSDM_French_Guiana_cache/W2_rst_m.tif type=Float32 \\
 			 createopt='compress=lzw,predictor=2'")
 # Representation
-W2_rst <- terra::rast("JSDM_French_Guiana_cache/W2_rst.tif")
+W2_rst_m <- terra::rast("JSDM_French_Guiana_cache/W2_rst_m.tif")
+W2_rst <- terra::project(W2_rst_m, terra::crs(coords))
+terra::writeRaster(W2_rst, "JSDM_French_Guiana_cache/W2_rst.tif",
+                   gdal=c("COMPRESS=LZW", "PREDICTOR=2"), overwrite=TRUE)
 # Data restricted to French Guiana's borders
-borders <- terra::vect(output[[2]], layer="gadm36_MDG_0")
+borders <- terra::vect(output[[2]], layer="gadm36_GUF_0")
 borders <- terra::project(borders, terra::crs(W2_rst))
 W2_rst  <- terra::mask(W2_rst, borders)
 terra::plot(W2_rst, main="Latent variable W2 interpolated by RST")
-W2_rst_xy <- terra::extract(W2_rst, xy)[, "W2_rst"]
+W2_rst_xy <- terra::extract(W2_rst, coords)[, "W2_rst"]
 plot(W2_rst_xy, params_sites$W2,
      xlab="W2 interpolated by RST",
      ylab="W2 estimated by JSDM", 
@@ -1227,7 +1573,7 @@ abline(a=0, b=1, col='red')
 W2_rst_centered <- terra::app(W2_rst, scale, scale=FALSE)
 names(W2_rst_centered) <- names(W2_rst)
 terra::plot(W2_rst_centered, main="Second latent axis interpolated by RST")
-W2_rst_centered_xy <- terra::extract(W2_rst_centered, xy)[,"W2_rst"]
+W2_rst_centered_xy <- terra::extract(W2_rst_centered, coords)[,"W2_rst"]
 plot(W2_rst_centered_xy, params_sites$W2,
      xlab="W2 interpolated by RST",
      ylab="W2 estimated by JSDM",
@@ -1240,7 +1586,7 @@ terra::writeRaster(W2_rst_centered, "JSDM_French_Guiana_cache/W2_rst_centered.ti
 We represent the second latent variable interpolated at French Guiana scale. 
 
 ```{r plot-RST-W2, echo=FALSE, out.width=800, eval=FALSE}
-knitr::include_graphics("JSDM_French_Guiana_files/figure-html/RST-W2-1.png")
+knitr::include_graphics(paste0("JSDM_French_Guiana_files/figure-html/RST-W2-", 1:4, ".png")
 ```
 
 # Representation of results at the French Guiana scale
@@ -1257,12 +1603,11 @@ rst_W1 <- terra::rast("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_Fren
 rst_W2 <- terra::rast("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/W2_rst_centered.tif")
 
 # Species parameters 
-params_species <- read.csv(file = "~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/params_species.csv")
+params_species <- read.csv2(file = "~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/params_species.csv", sep=";", header=TRUE)
 nsp <- nrow(params_species)
-# Current climatic variables 
-X <- read.csv(file = "~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/X.csv")
-scaled_clim_var <- terra::rast("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/scaled_clim.tif")
-names(scaled_clim_var) <- colnames(X[,-1])
+# Design matrix  of current climatic variables 
+scaled_clim_var <- terra::rast("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/scaled_clim.tif",
+                               lyrs=c("temp", "prec", "sais_prec", "apawd",  "temp2", "prec2", "sais_prec2", "apawd2"))
 terra::ext(scaled_clim_var) <- terra::ext(rst_alpha)
 if(terra::crs(scaled_clim_var) != terra::crs(rst_alpha)){
   scaled_clim_var <- terra::project(scaled_clim_var, terra::crs(rst_alpha))
@@ -1272,7 +1617,7 @@ if(terra::crs(scaled_clim_var) != terra::crs(rst_alpha)){
 predfun <- function(scaled_clim_var, params_species, rst_alpha, rst_W1, rst_W2, species.range){
   lambda_1 <- as.matrix(params_species[,"lambda_1"])
   lambda_2 <- as.matrix( params_species[,"lambda_2"])
-  beta <- as.matrix(params_species[,3:13])
+  beta <- as.matrix(params_species[ , grep("beta", colnames(params_species))])
   
   ## Xbeta_1
   np <- terra::nlyr(scaled_clim_var)
@@ -1330,34 +1675,41 @@ for (n in 1:npart){
 We represent the presence probabilities of two species interpolated at the scale of French Guiana as well as their observed occurrences at the inventory sites represented by black crosses.
 
 ```{r plot-theta}
-params_species <- read.csv(file = "~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/params_species.csv")
+params_species <- read.csv2(file = "~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/params_species.csv",
+                            header = TRUE, sep=";")
 nsp <- nrow(params_species)
-xy <- terra::vect("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/coords.shp")
+coords <- terra::vect("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/coords.shp")
+
+# presence-absence matrix
+PA <- readr::read_delim("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_files/PA_anon.csv", delim=",")
+PA <- as.data.frame(PA[,-1])
+rownames(PA) <- PA[,1]
+PA <- PA[,-1]
 
 # Observed presence absence
 id_pres <- which(PA[,"sp_1"]==1)
-obs_pres<-  terra::vect(terra::crds(xy[id_pres,]),
-                                type="point", crs=terra::crs(xy))
+obs_pres<-  terra::vect(terra::crds(coords[id_pres,]),
+                                type="point", crs=terra::crs(coords))
 id_pres2 <- which(PA[,"sp_6"]==1)
-obs_pres2 <-  terra::vect(terra::crds(xy[id_pres2,]),
-                                   type="point", crs=terra::crs(xy))
+obs_pres2 <-  terra::vect(terra::crds(coords[id_pres2,]),
+                                   type="point", crs=terra::crs(coords))
 # Representation
 npart <- 10
 first.species <- seq(1,nsp,by=floor(nsp/npart)+1)
-theta <- terra::rast("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/RST_theta_1.tif")
+theta <- terra::rast("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/RST_centered_theta_1.tif")
 names(theta) <- paste0("sp_", first.species[1]:(first.species[1]+floor(nsp/npart)))
 par(mfrow=c(1,2), oma=c(1, 0, 2, 1), mar=c(5, 4, 3, 2))
 terra::plot(theta$sp_1,
             main="sp_1")
-terra::points(obs_pres, pch=3, cex=0.7)
+terra::points(obs_pres, pch=3, cex=0.5)
 terra::plot(theta$sp_6,
             main="sp_6")
-terra::points(obs_pres2, pch=3, cex=0.7)
+terra::points(obs_pres2, pch=3, cex=0.5)
 title(main="Interpolated current probabilities of presence",
       outer=T, cex.main=1.3)
 ```
 
-```{r plot-theta2, echo=FALSE, out.width=800, eval=FALSE}
+```{r plot-theta2, echo=FALSE, out.width=800, eval=TRUE}
 knitr::include_graphics("JSDM_French_Guiana_files/figure-html/plot-theta-1.png")
 ```
 
@@ -1372,11 +1724,11 @@ Species richness also called diversity $\alpha$ reflects the number of species c
 We compute at French Guiana scale the species richness by summing the interpolated probabilities of occurrence for each map's cell $i$ :  $\widehat{R}_i=\sum\limits_ {j=1}^{n_{species}} \widehat{\theta}_{ij}$.
 
 ```{r species-richness, eval=FALSE}
-theta <- terra::rast("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/RST_theta_1.tif")
+theta <- terra::rast("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/RST_centered_theta_1.tif")
 species_richness <- terra::app(theta, sum)
 npart <- 10
 for(n in 2:npart){
-  theta <- terra::rast(paste0("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/RST_theta_",
+  theta <- terra::rast(paste0("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/RST_centered_theta_",
                               n, ".tif"))
   species_richness <- species_richness + terra::app(theta, sum)
 }
@@ -1388,59 +1740,64 @@ terra::writeRaster(species_richness,
 
 ### Current species richness restricted to forest cover
 
-However, the model used does not take into account human presence, which is manifested in particular by the deforestation of the island, so we use data on remaining forest cover in 2000 from the article @Vieilledent2018 in order to replace with zero values the interpolated species richness at locations where forest is known to have been removed. 
+However, the model used does not take into account human presence, which is manifested in particular by the deforestation of the territory, so we use data on remaining forest cover in 2010 downloaded from <https://forestatrisk.cirad.fr/index.html> computed following the article @Vieilledent2022, using the [get_env_variables](https://ecology.ghislainv.fr/gecevar/reference/get_env_variables.html) function of package [gecevar](https://ecology.ghislainv.fr/gecevar/), in order to replace with zero values the interpolated species richness at locations where forest is known to have been removed. 
 
 ```{r species-richness-deforest, eval=FALSE}
 library(glue)
-# raster of French Guiana's forest cover in 2000
-forest <- terra::rast("~/Documents/projet_METRADICA/data/for2000.tif")
-# change resolution of species richness raster from 1000x1000m to 30x30m
-in_f <- "~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/species_richness.tif"
-out_f <- "~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/species_richness_30m.tif"
-cmd <- glue('gdalwarp -tr 30 30 -te {xmin(forest)} {ymin(forest)} {xmax(forest)} {ymax(forest)} -r near -co "COMPRESS=LZW" -co "PREDICTOR=2" -overwrite {in_f} {out_f}')
-system(cmd)
-# remove species richness values where there was no forest in 2000s
-species_richness <- terra::rast("~/Documents/projet_METRADICA/JSDM_French_Guiana_cache/species_richness_30m.tif")
-species_richness_deforest <- terra::mask(species_richness, forest)
+# raster of French Guiana's forest cover in 2010
+output_file <- "/home/clement/Documents/projet_METRADICA/data"
+setwd("~/Documents/projet_METRADICA/data/")
+epsg <- 32622
+name <- "French Guiana"
+load(file="~/Documents/projet_METRADICA/data/output.RData")
+extent <- output[[1]][1]
+extent_latlon <- as.numeric(output[[1]][2:5])
+env.path <- gecevar::get_env_variables(extent_latlon = extent_latlon,
+                                       extent = extent,
+                                       EPSG = epsg,
+                                       country_name = name,
+                                       destination = output_file,
+                                       resolution = 1000,
+                                       rm_download = TRUE,
+                                       forest_year = 2010)
+forest <- terra::rast(env.path, lyrs=c("forest"))
+# change projection of species richness raster from lat lon to epsg 32622
+species_richness <- terra::rast("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/species_richness.tif")
+species_richness_m <- project(species_richness, forest)
+terra::writeRaster(species_richness_m,
+                   filename="~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/species_richness_m.tif",
+                   filetype="GTiff", gdal=c("COMPRESS=LZW", "PREDICTOR=2"), overwrite=TRUE)
+# remove species richness values where there was no forest in 2010s
+species_richness_deforest <- terra::mask(species_richness_m, forest)
 terra::writeRaster(species_richness_deforest,
                    filename="~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/species_richness_deforest.tif",
                    filetype="GTiff", gdal=c("COMPRESS=LZW", "PREDICTOR=2"), overwrite=TRUE)
 ```
 
 ```{r plot-species-richness-deforest, echo=FALSE}
-# raster of French Guiana's forest cover in 2000
-forest <- terra::rast("~/Documents/projet_METRADICA/data/for2000.tif")
+# raster of French Guiana's forest cover in 2010
+env.path <- "~/Documents/projet_METRADICA/data/data_raw/environ.tif"
+forest <- terra::rast(env.path, lyrs=c("forest"))
 par(mfrow=c(1,1))
-terra::plot(forest, main="Forest cover in 2000", legend=F)
-# Representation of species richness restricted to forest cover in 2000's 
-species_richness <- terra::rast("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/species_richness_30m.tif")
+terra::plot(forest, main="Forest cover in 2010", legend=FALSE)
+# Representation of species richness restricted to forest cover in 2010
+species_richness <- terra::rast("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/species_richness_m.tif")
 species_richness_deforest <- terra::rast("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/species_richness_deforest.tif")
 terra::plot(c(species_richness, species_richness_deforest),
-            breaks=c(0,2,4,6,8,10,12,14,16,20,24,28,32,36,40,45,50,55,60,65), 
+            breaks=c(0,5,10,15,20,25,30,35,40,45,50,60,70,80,100,125,150,175,200,
+                     300, terra::minmax(species_richness)["max",]), 
             col=terrain.colors(200)[seq.int(from=200, to=1, length.out=20)],
             mar=c(3.1, 3.1, 2.1, 4.1),
             main=c("Estimated current species richness",
                    "Current species richness restricted to forest cover"),
             cex.main=0.85)
-
-# terra::plot(species_richness_deforest,
-#             breaks=c(0,2,4,6,8,10,12,14,16,18,20,22,24,26,28,30,32,40,65), 
-#             col=terrain.colors(200)[seq.int(from=200, to=1, length.out=20)],
-#             mar=c(3.1, 3.1, 3.1, 4.1),
-#             main=c("Estimated species richness restricted to forest cover"),
-#             cex.main=1.2, plg=list(cex=1.1),
-#             pax=list( # parameters for drawing axes
-#                 cex.axis = 1.1 ) # Axis text size 
-#                 )
 ```
 
-```{r plot-species-richness-deforest2, echo=FALSE, out.width=800, eval=FALSE}
+```{r plot-species-richness-deforest2, echo=FALSE, out.width=800, eval=TRUE}
 
 knitr::include_graphics("JSDM_French_Guiana_files/figure-html/plot-species-richness-deforest-1.png")
 knitr::include_graphics("JSDM_French_Guiana_files/figure-html/plot-species-richness-deforest-2.png")
 ```
-
-We can see that the species richness, computed from interpolated occurrence probabilities, is greater ....
 
 Note that the estimated species richness does not necessarily stand for
 a 'true' number of present species but represent a relative species
@@ -1457,16 +1814,17 @@ In order to estimate this indicator, we proceed in the same way as in the articl
 ```{r diversity-beta, eval=FALSE}
 # Sample 10000 cells of presence probabilities raster
 npart <- 10
-theta <- terra::rast("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/RST_theta_1.tif")
+theta <- terra::rast("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/RST_centered_theta_1.tif")
 samp_theta <- terra::spatSample(theta, size=10000, method="random",
                                 ext=terra::ext(theta), na.rm=TRUE, cells=TRUE)
 samp_cells <- samp_theta[,"cell"]
 samp_theta <- samp_theta[,-1]
 for(n in 2:npart){
-  theta <- terra::rast(paste0("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/RST_theta_", n, ".tif"))
+  theta <- terra::rast(paste0("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/RST_centered_theta_", n, ".tif"))
   samp_theta <- cbind(samp_theta, theta[samp_cells])
 }
-params_species <- read.csv(file = "~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/params_species.csv")
+params_species <- read.csv2(file = "~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/params_species.csv",
+                            sep=";", header=TRUE)
 colnames(samp_theta) <- params_species$species
 
 # Data frame to compute PCA on pixels dissimilarity 
@@ -1482,25 +1840,25 @@ terra::values(coords) <- 0
 names(coords) <- colnames(pca_theta$li)
 for(k in 1:nrow(theta)){
   cat(k, "/", nrow(theta),"\n")
-  theta <- terra::rast("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/RST_theta_1.tif")
+  theta <- terra::rast("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/RST_centered_theta_1.tif")
   ## Make a cluster for parallel computation
   # detect the number of CPU cores on the current host
   ncores <- parallel::detectCores()
-  clust <- makeCluster(ncores)
-  registerDoParallel(clust)
+  clust <- parallel::makeCluster(ncores)
+  doParallel::registerDoParallel(clust)
   theta_k <- foreach(n=1:npart, .combine = "cbind") %dopar%{
-    theta <- terra::rast(paste0("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/RST_theta_",
+    theta <- terra::rast(paste0("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/RST_centered_theta_",
                                 n, ".tif"))
     theta_k <- terra::values(theta, row=k, nrows=1)
     return(theta_k)
   }
-  stopCluster(clust)
+  parallel::stopCluster(clust)
   colnames(theta_k) <- params_species$species
   theta_k <- data.frame(theta_k)
   coords[k,] <- as.matrix(ade4::suprow(pca_theta,theta_k)$lisup)
 }
 terra::writeRaster(coords,
-                   filename="~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/coords.tif",
+                   filename="~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/pca_coords.tif",
                    filetype="GTiff", gdal=c("COMPRESS=LZW", "PREDICTOR=2"), overwrite=TRUE)
 
 # Change the coordinate scale for [0.255]. 
@@ -1532,21 +1890,23 @@ terra::writeRaster(coords_RGB,
 
 ### Current species turn over restricted to forest cover
 
-In the same way as above, we restrict the values obtained for diversity $\beta$ to the forest cover remaining in 2000.
+In the same way as above, we restrict the values obtained for diversity $\beta$ to the forest cover remaining in 2010.
 
 ```{r species-turnover-deforest}
-library(glue)
-# raster of French Guiana's forest cover in 2000
-forest <- terra::rast("~/Documents/projet_METRADICA/data/for2000.tif")
+
+# raster of French Guiana's forest cover in 2010
+env.path <- "~/Documents/projet_METRADICA/data/data_raw/environ.tif"
+forest <- terra::rast(env.path, lyrs=c("forest"))
 # current species turnover
-# change resolution of species richness raster from 1000x1000m to 30x30m
-in_f <- "~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/species_turnover.tif"
-out_f <- "~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/data/species_turnover_30m.tif"
-cmd <- glue('gdalwarp -tr 30 30 -te {xmin(forest)} {ymin(forest)} {xmax(forest)} {ymax(forest)} -r near -co "COMPRESS=LZW" -co "PREDICTOR=2" -overwrite {in_f} {out_f}')
-system(cmd)
-# remove species richness values where there was no forest in 2000s
-species_turnover <- terra::rast("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/species_turnover_30m.tif")
-species_turnover_deforest <- terra::mask(species_turnover,forest)
+# change projection of species turnover raster from lat lon to epsg 32622
+species_turnover <- terra::rast("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/species_turnover.tif")
+species_turnover_m <- project(species_turnover, forest)
+terra::writeRaster(species_turnover_m,
+                   filename="~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/species_turnover_m.tif",
+                   filetype="GTiff", gdal=c("COMPRESS=LZW", "PREDICTOR=2"), overwrite=TRUE)
+# remove species turnover values where there was no forest in 2010
+species_turnover <- terra::rast("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/species_turnover_m.tif")
+species_turnover_deforest <- terra::mask(species_turnover, forest) 
 terra::writeRaster(species_turnover_deforest,
                    filename="~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/species_turnover_deforest.tif",
                    filetype="GTiff", gdal=c("COMPRESS=LZW", "PREDICTOR=2"), overwrite=TRUE)
@@ -1554,8 +1914,13 @@ terra::writeRaster(species_turnover_deforest,
 
 
 ```{r plot-diversity-beta}
-# Representation of species turn over restricted to forest cover in 2000's
-species_turnover_current <- terra::rast("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/species_turnover_30m.tif")
+
+# Representation of species turn over restricted to forest cover in 2010
+# raster of French Guiana's forest cover in 2010
+env.path <- "~/Documents/projet_METRADICA/data/data_raw/environ.tif"
+forest <- terra::rast(env.path, lyrs=c("forest"))
+# current species turnover
+species_turnover_current <- terra::rast("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/species_turnover_m.tif")
 species_turnover_deforest <- terra::rast("~/Documents/projet_METRADICA/JSDM_French_Guiana/JSDM_French_Guiana_cache/species_turnover_deforest.tif")
 par(mfrow=c(1,2))
 terra::plotRGB(species_turnover_current, stretch="hist",
@@ -1566,21 +1931,17 @@ terra::plotRGB(species_turnover_deforest, stretch="hist",
                main="Current species turn over on forest cover")
 ```
 
-```{r plot-diversity-beta2, echo=FALSE, out.width=800, eval=FALSE}
+```{r plot-diversity-beta2, echo=FALSE, out.width=800, eval=TRUE}
 knitr::include_graphics("JSDM_French_Guiana_files/figure-html/plot-diversity-beta-1.png")
 ```
 
-(ref:cap-habitat) **_Habitat in French Guiana_** [@].
+(ref:cap-habitat) **_Habitat in French Guiana_** [@Habitats2015].
 
-```{r plot-forest-type, echo=FALSE, out.width=280, fig.cap="(ref:cap-forest-type)",eval=FALSE}
-knitr::include_graphics("")
+```{r plot-habitat, echo=FALSE, out.width=800, fig.cap="(ref:cap-habitat)", eval=TRUE}
+knitr::include_graphics("JSDM_French_Guiana_files/figure-html/arpercu_habitats_.png")
 ```
 
-We can see that the estimated map of $\beta$-diversity agrees with the map of French Guiana’s habitat from the article @.     
-
-Indeed, communities of species represented by shades of blue and green correspond to the eastern moist forest, communities represented by shades of red match the western dry forest and communities in magenta correspond to the southern spiny forest.    
-
-Moreover, the $\beta$-diversity map we obtain allows to identify substantially different species communities within these three forest types. For example, we can clearly identify three different tree communities (in blue, green, and black) within the eastern moist forest.
+We can see that the estimated map of $\beta$-diversity agrees with the map of French Guiana’s habitat from the book @Habitats2015.     
 
 # Characterization of species communities
      
